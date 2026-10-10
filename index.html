@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Explore payment choices and see what changes before you decide."><meta name="theme-color" content="#244e43"><title>Can I? — Make room for better decisions</title><link rel="stylesheet" href="styles.css"></head>
+<body>
+<div class="shell">
+<aside><a class="brand" href="#home" aria-label="Can I home">can i<span>?</span></a><p class="brand-note">A little clarity.<br>A better next move.</p><nav aria-label="Main navigation"><a href="#home" data-nav="home"><span>◉</span> Overview</a><a href="#pay" data-nav="pay"><span>↗</span> What should I pay?</a><a href="#whatif" data-nav="whatif"><span>⇄</span> What if?</a><a href="#money" data-nav="money"><span>▤</span> My money</a><a href="#history" data-nav="history"><span>↶</span> Activity</a></nav><div class="aside-bottom"><div class="seed">✳</div><p>Your money.<br>Your final call.</p><small>Prototype · USD</small></div></aside>
+<main><header><span class="eyebrow">YOUR NEXT MOVE, MADE CLEARER</span><span class="prototype">Private prototype <i></i></span></header><div id="notice"></div><div id="content"></div><footer>Comparisons use the information you enter. Expected income is not cash until received.<br>Explanations use rules in this version. No live AI or bank connection.</footer></main></div>
+<div id="toast" role="status" aria-live="polite"></div>
+<dialog id="confirm"><form method="dialog"><h2>Have you completed these actions?</h2><p id="confirm-text"></p><p class="muted">This records what happened. Can I does not send money or pay anyone.</p><div class="buttons"><button value="cancel" class="secondary">Keep as a preview</button><button value="record" class="primary">Yes, record actions</button></div></form></dialog>
+<script type="module" src="app.mjs"></script></body></html>
