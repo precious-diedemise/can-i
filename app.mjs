@@ -65,3 +65,113 @@ if(action==='demo'){if(!window.confirm('Replace current numbers and activity wit
 });
 $('confirm').addEventListener('close',()=>{if($('confirm').returnValue!=='record'||!pending)return;try{const before=structuredClone(state);const r=simulateItems(state,pending.items,pending.release);const updated=recordItems(state,pending.items,pending.release);addItemHistory('payment',pending,r);undo={state:before,entryId:history.at(-1).id};state=updated;pending=null;save();location.hash='home';render();toast('Actions recorded. You can undo them in Activity.');}catch(e){toast(e.message);}});
 window.addEventListener('hashchange',()=>{pending=null;render();window.scrollTo({top:0,behavior:'smooth'});});render();if(storageProblem)toast('Could not restore saved data. Showing the fictional example.');
+// Blank starting figures and optional sample mode.
+function blankStartState() {
+  return {
+    version: 2, demo: false, setupComplete: false,
+    cash: 0, savings: 0, essentials: 0, income: 0,
+    payday: '', asof: today(), priority: '', debts: []
+  };
+}
+
+if (state.demo && state.setupComplete !== true) {
+  state = blankStartState();
+  history = [];
+  undo = null;
+} else if (state.setupComplete === undefined) {
+  state.setupComplete = true;
+}
+
+const originalMoneyView = moneyView;
+moneyView = function () {
+  let html = originalMoneyView();
+  if (!state.setupComplete) {
+    for (const id of ['cash', 'savings', 'essentials', 'income']) {
+      const pattern = new RegExp('(id="' + id + '"[^>]*value=")[^"]*(")');
+      html = html.replace(pattern, '$1$2');
+    }
+    html = html.replace(
+      'Update the facts. The comparisons will follow.',
+      'Enter your numbers to begin. Enter 0 where you have none.'
+    );
+  }
+  return html.replace('Reload fictional example', 'Try sample numbers');
+};
+
+const originalSaveMoney = saveMoney;
+saveMoney = function () {
+  if (!$('money-form').reportValidity()) return;
+  for (const id of ['cash', 'savings', 'essentials', 'income']) {
+    if (!$(id).value.trim()) {
+      $('money-error').textContent =
+        'Enter each money amount, including 0 where you have none.';
+      return;
+    }
+  }
+  const previous = state;
+  originalSaveMoney();
+  if (state !== previous) {
+    state.setupComplete = true;
+    save();
+    render();
+  }
+};
+
+const originalBanner = banner;
+banner = function () {
+  if (state.setupComplete) {
+    originalBanner();
+    return;
+  }
+  $('notice').innerHTML =
+    '<div class="banner"><span>Start with your own numbers, or explore an example.</span>' +
+    '<button class="text-btn" data-action="demo">Try sample numbers →</button></div>';
+};
+
+render = function () {
+  const page = state.setupComplete
+    ? (location.hash.slice(1) || 'home')
+    : 'money';
+  document.querySelectorAll('[data-nav]').forEach(a => {
+    a.classList.toggle('active', a.dataset.nav === page);
+    if (a.dataset.nav === page) a.setAttribute('aria-current', 'page');
+    else a.removeAttribute('aria-current');
+  });
+  banner();
+  const views = {
+    home: homeView, pay: payView, whatif: whatifView,
+    money: moneyView, history: historyView
+  };
+  $('content').innerHTML = (views[page] || homeView)();
+  if (page === 'money') renderDebtFields();
+  if (page === 'pay') renderItems('p');
+  if (page === 'whatif') renderItems('w');
+  if (page === 'home') warningHome();
+};
+
+document.addEventListener('click', function (event) {
+  const button = event.target.closest('[data-action]');
+  const action = button?.dataset.action;
+  if (action !== 'demo' && action !== 'clear') return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+
+  if (state.setupComplete && !window.confirm(
+    action === 'demo'
+      ? 'Replace your current numbers and activity with sample numbers?'
+      : 'Clear your saved numbers and activity?'
+  )) return;
+
+  state = action === 'demo'
+    ? { ...demo(), setupComplete: true }
+    : blankStartState();
+  history = [];
+  undo = null;
+  pending = null;
+  options = [];
+  save();
+  location.hash = action === 'demo' ? 'home' : 'money';
+  render();
+}, true);
+
+render();
