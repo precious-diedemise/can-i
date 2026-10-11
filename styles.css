@@ -7,3 +7,7 @@
 details summary{cursor:pointer;font-weight:600;line-height:1.6}details p{margin:10px 0 0}.option-card details{margin-bottom:16px}
 
 .item-entry{padding:22px 0;border-bottom:1px solid var(--line);margin-bottom:14px}.item-entry h3{margin:0}.item-entry .form-grid{margin-top:14px}
+/* Remove the decoration that covers text on phones. */
+.hero::after {
+  content: none;
+}
