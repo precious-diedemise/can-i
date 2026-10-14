@@ -137,8 +137,18 @@ render = function () {
   document.querySelectorAll('[data-nav]').forEach(a => {
     a.classList.toggle('active', a.dataset.nav === navPage);
     if (a.dataset.nav === navPage) a.setAttribute('aria-current', 'page');
-    else a.removeAttribute('aria-current');
+       else a.removeAttribute('aria-current');
   });
+
+  const introduction = document.getElementById('app-introduction');
+
+  if (introduction) {
+    introduction.hidden = !(
+      page === 'home' ||
+      (page === 'money' && !state.setupComplete)
+    );
+  }
+
   banner();
   const views = {
     home: homeView, pay: payView, whatif: whatifView,
