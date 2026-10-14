@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {validate,snapshot,simulate,paymentOptions,record} from '../dist/engine.mjs';
+import {validate,snapshot,simulate,paymentOptions,record} from './engine.mjs';
 const fixture=()=>({version:2,cash:32000,savings:40000,essentials:11000,income:52000,payday:'2026-10-17',asof:'2026-10-10',priority:'friend',debts:[{id:'card',name:'Card',type:'Credit card',balance:90000,apr:24,minimum:3500,due:'2026-10-13'},{id:'tuition',name:'Tuition',type:'School / tuition',balance:25000,apr:0,minimum:10000,due:'2026-10-15'},{id:'friend',name:'Friend',type:'Someone I know',balance:20000,apr:0,minimum:0,due:''}]});
 test('available headroom excludes savings, future income and upcoming commitments',()=>{assert.equal(snapshot(fixture()).room,7500);});
 test('home separates cash after essentials from a projected debt commitment shortfall',()=>{const s=fixture();s.cash=21000;s.essentials=8500;const before=structuredClone(s),overview=snapshot(s);assert.equal(overview.afterEssentials,12500);assert.equal(overview.due,13500);assert.equal(overview.room,-1000);assert.equal(simulate(s).room,-1000);assert.deepEqual(s,before);});
@@ -17,3 +17,4 @@ test('invalid amounts and excessive debt payments are rejected',()=>{const s=fix
 test('$60 produces three distinct allocations and identical cash left',()=>{const s=fixture();s.cash=21000;s.essentials=8500;const opts=paymentOptions(s,6000);assert.equal(opts.length,3);assert.deepEqual(opts[0].allocations,{card:3500,tuition:2500});assert.deepEqual(opts[1].allocations,{card:6000});assert.deepEqual(opts[2].allocations,{friend:6000});assert.ok(opts.every(o=>o.result.total===6000&&o.result.cash===15000));assert.deepEqual(opts.map(o=>o.result.due),[7500,10000,13500]);assert.deepEqual(opts.map(o=>o.result.room),[-1000,-3500,-7000]);});
 test('overlapping strategies get distinct fallback allocations, never duplicate cards',()=>{const s=fixture();s.priority='card';const opts=paymentOptions(s,6000);assert.equal(opts.length,3);assert.equal(new Set(opts.map(o=>JSON.stringify(s.debts.map(d=>o.allocations[d.id]||0)))).size,3);assert.ok(opts.every(o=>o.result.total===6000));});
 test('one debt yields one honest option, and fully clearing all debts yields no duplicates',()=>{const s=fixture();s.debts=[s.debts[0]];s.priority='card';assert.equal(paymentOptions(s,6000).length,1);s.cash=200000;s.essentials=0;s.debts=fixture().debts;const opts=paymentOptions(s,200000);assert.equal(opts.length,1);assert.equal(opts[0].result.total,135000);});
+

@@ -64,3 +64,4 @@ export function record(s,allocations,release=0) {
   if(r.total<=0)throw new Error('There is no payment to record.');
   return {...s,cash:r.cash,savings:r.savings,debts:s.debts.map(d=>({...d,balance:d.balance-(allocations[d.id]||0),minimum:Math.max(0,d.minimum-(allocations[d.id]||0))}))};
 }
+

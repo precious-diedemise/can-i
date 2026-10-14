@@ -43,3 +43,4 @@ export function itemOptions(s,items,budget,release=0,priority=''){
   if(result.length<3&&active.length>1){for(let i=0;i<active.length&&result.length<3;i++)for(let j=i+1;j<active.length&&result.length<3;j++){const a=active[i],b=active[j];add(`Split between ${a.name} and ${b.name}`,'Split the amount between these two items, with any remainder allocated to other items.',interest,{[a.id]:Math.min(a.amount,Math.floor(limit/2)),[b.id]:Math.min(b.amount,Math.ceil(limit/2))});}}
   return result.slice(0,3);
 }
+
