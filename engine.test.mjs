@@ -18,3 +18,4 @@ test('$60 produces three distinct allocations and identical cash left',()=>{cons
 test('overlapping strategies get distinct fallback allocations, never duplicate cards',()=>{const s=fixture();s.priority='card';const opts=paymentOptions(s,6000);assert.equal(opts.length,3);assert.equal(new Set(opts.map(o=>JSON.stringify(s.debts.map(d=>o.allocations[d.id]||0)))).size,3);assert.ok(opts.every(o=>o.result.total===6000));});
 test('one debt yields one honest option, and fully clearing all debts yields no duplicates',()=>{const s=fixture();s.debts=[s.debts[0]];s.priority='card';assert.equal(paymentOptions(s,6000).length,1);s.cash=200000;s.essentials=0;s.debts=fixture().debts;const opts=paymentOptions(s,200000);assert.equal(opts.length,1);assert.equal(opts[0].result.total,135000);});
 
+

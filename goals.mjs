@@ -19,3 +19,4 @@ export function goalProgress(state, result = null, asof = state.asof) {
   const days = Math.ceil((Date.parse(g.deadline + 'T00:00:00Z') - Date.parse(asof + 'T00:00:00Z')) / 86400000);
   return {net, remaining, percent: Math.max(0, Math.min(100, net / g.target * 100)), days, weekly: days > 0 ? Math.ceil(remaining * 7 / days) : null};
 }
+

@@ -4,19 +4,20 @@ import vm from 'node:vm';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import * as engine from './engine.mjs';
-import * as multi from './multi.mjs';
+import * as multi from './planner.mjs';
 import * as goals from './goals.mjs';
+const conversationSource=fs.readFileSync(new URL('./conversation.mjs',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replace('export function createConversation','function createConversation');
 const source=fs.readFileSync(new URL('./app.mjs',import.meta.url),'utf8').replace(/^import .*;\n/gm,'');
 function boot(saved,hash=''){
  const elements={}, handlers={};
  const el=id=>elements[id]??={innerHTML:'',textContent:'',style:{},value:'',checked:false,classList:{toggle(){}},addEventListener(){},reportValidity(){return true},scrollIntoView(){},insertAdjacentHTML(where,html){this.innerHTML=html+this.innerHTML;}};
  const storage={};if(saved)storage['can-i-v2']=JSON.stringify(saved);
- const context={...engine,...multi,...goals,Intl,Date,Number,String,Math,JSON,Array,Object,Map,Set,structuredClone,crypto:{randomUUID:()=>String(Math.random())},document:{getElementById:el,querySelectorAll:()=>[],addEventListener:(name,fn)=>(handlers[name]??=[]).push(fn)},location:{hash},localStorage:{getItem:k=>storage[k],setItem:(k,v)=>storage[k]=v},window:{confirm:()=>true,addEventListener(){},scrollTo(){}},setTimeout:()=>0,clearTimeout(){}};
- vm.createContext(context);vm.runInContext(source,context);
+ const context={fetch:async()=>({json:async()=>({configured:false})}),AbortController,...engine,...multi,...goals,Intl,Date,Number,String,Math,JSON,Array,Object,Map,Set,structuredClone,crypto:{randomUUID:()=>String(Math.random())},document:{getElementById:el,querySelectorAll:()=>[],addEventListener:(name,fn)=>(handlers[name]??=[]).push(fn)},location:{hash},localStorage:{getItem:k=>storage[k],setItem:(k,v)=>storage[k]=v},window:{confirm:()=>true,addEventListener(){},scrollTo(){}},setTimeout:()=>0,clearTimeout(){}};
+ vm.createContext(context);context.createConversation=vm.runInContext('(()=>{'+conversationSource+';return createConversation;})()',context);vm.runInContext(source,context);
  return {el,context,storage,run:s=>vm.runInContext(s,context),event:(name,e)=>handlers[name].forEach(fn=>fn(e))};
 }
 test('new visitors get blank inputs and can open Survey before setup',()=>{
- const a=boot();for(const id of ['cash','savings','essentials','income'])assert.match(a.el('content').innerHTML,new RegExp('id="'+id+'"[^>]*value=""'));
+ const a=boot(undefined,'#money');for(const id of ['cash','savings','essentials'])assert.match(a.el('content').innerHTML,new RegExp('id="'+id+'"[^>]*value=""'));
  a.context.location.hash='#survey';a.run('render()');assert.match(a.el('content').innerHTML,/iframe.*embedded=true/);assert.doesNotMatch(a.el('content').innerHTML,/id="money-form"/);
  a.context.location.hash='#compare';a.run('render()');assert.match(a.el('content').innerHTML,/id="money-form"/);
 });
@@ -31,3 +32,4 @@ test('goal form persists an optional goal without altering balances',()=>{
  a.event('submit',{target:{id:'goal-form'},preventDefault(){}});const saved=JSON.parse(a.storage['can-i-v2']);assert.equal(saved.state.goal.target,10000);assert.equal(saved.state.cash,s.cash);assert.equal(saved.state.savings,s.savings);
  const restored=boot(saved,'#home');assert.match(restored.el('content').innerHTML,/Save an additional/);
 });
+

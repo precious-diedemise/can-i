@@ -65,3 +65,4 @@ export function record(s,allocations,release=0) {
   return {...s,cash:r.cash,savings:r.savings,debts:s.debts.map(d=>({...d,balance:d.balance-(allocations[d.id]||0),minimum:Math.max(0,d.minimum-(allocations[d.id]||0))}))};
 }
 
+
