@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "node --env-file-if-exists=.env.local scripts/dev.mjs",
     "build": "node scripts/build.mjs",
-    "test": "node --test *.test.mjs server/*.test.mjs"
+    "test": "node --test engine.test.mjs multi.test.mjs planner.test.mjs goals.test.mjs guided.test.mjs"
   },
   "devDependencies": {
     "jsdom": "^30.1.3"

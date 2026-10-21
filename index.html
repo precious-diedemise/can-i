@@ -2,13 +2,13 @@
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="description" content="Explore payment choices and see what changes before you decide."><meta name="theme-color" content="#244e43"><title>Can I? — Your next move, made clearer.</title><link rel="stylesheet" href="styles.css"></head>
 <body>
 <div class="shell">
-<aside><a class="brand" href="#home" aria-label="Can I home">can i<span>?</span></a><p class="brand-note">Your next move,<br>made clearer.</p><nav aria-label="Main navigation"><a href="#pay" data-nav="pay"><span>✦</span> Help me decide</a><a href="#home" data-nav="home"><span>◉</span> Overview</a><a href="#compare" data-nav="compare"><span>⇄</span> Compare choices</a><a href="#money" data-nav="money"><span>▤</span> My money</a><a href="#bills" data-nav="bills"><span>▦</span> Bills & subscriptions</a><a href="#history" data-nav="history"><span>↶</span> Activity</a><a href="#survey" data-nav="survey"><span>✎</span> Survey</a></nav><div class="aside-bottom"><div class="seed">✳</div><p>Your money.<br>Your final call.</p><small>Prototype · USD</small></div></aside>
+<aside><a class="brand" href="#home" aria-label="Can I home">can i<span>?</span></a><p class="brand-note">Your next move,<br>made clearer.</p><nav aria-label="Main navigation"><a href="#home" data-nav="home"><span>◉</span> Overview</a><a href="#compare" data-nav="compare"><span>⇄</span> Compare choices</a><a href="#money" data-nav="money"><span>▤</span> My money</a><a href="#bills" data-nav="bills"><span>▦</span> Bills & debts</a><a href="#history" data-nav="history"><span>↶</span> Activity</a><a href="#play" data-nav="play"><span>▷</span> Can I Play? <small>Coming soon</small></a><a href="#survey" data-nav="survey"><span>✎</span> Survey</a></nav><div class="aside-bottom"><div class="seed">✳</div><p>Your money.<br>Your final call.</p><small>Prototype · USD</small></div></aside>
 <main><header><span class="eyebrow">YOUR NEXT MOVE, MADE CLEARER</span><span class="prototype">Private prototype <i></i></span></header><section id="app-introduction" class="card" style="margin-bottom: 20px;">
   <h2>Plan your finances, one decision at a time.</h2>
 
   <p>
     Can I? helps you plan how to use your money, compare choices, and work toward your financial goals.
-    Talk through a decision or enter your available money, protected savings, expenses, and debts to explore the trade-offs.
+    Enter your spendable money, protected savings, expenses, and debts one step at a time to explore the trade-offs.
   </p>
 
   <ul>
@@ -30,7 +30,7 @@
     Comparing options does not move money or change
     your saved balances.
   </p>
-</section><div id="notice"></div><div id="content"></div><footer>Comparisons use the information you enter. Expected income is not cash until received.<br>AI help is available when connected. Review suggestions and calculations before acting. No bank connection or money transfers.</footer></main></div>
+</section><div id="notice"></div><div id="content"></div><footer>Comparisons use the information you enter. Expected income is not cash until received.<br>Suggestions use your entries and fixed comparison rules. Review the trade-offs before acting. No bank connection or money transfers.</footer></main></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <dialog id="confirm"><form method="dialog"><h2>Have you completed these actions?</h2><p id="confirm-text"></p><p class="muted">This records what happened. Can I does not send money or pay anyone.</p><div class="buttons"><button value="cancel" class="secondary">Keep as a preview</button><button value="record" class="primary">Yes, record actions</button></div></form></dialog>
 <script type="module" src="app.mjs"></script></body></html>
