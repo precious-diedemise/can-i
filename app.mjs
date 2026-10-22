@@ -271,18 +271,25 @@ const previousWhatifView = whatifView;
 compareTabs = () => '';
 whatifView = function () {
   previousWhatifView();
+  comparisonAction = 'own';
   
   return heading('Compare choices', 'Try your own plan or ask for a suggested split. You stay in control.') + `
     <form id="whatif-form" class="card">
-      ${field('split-budget', 'How much would you like to split?', '', 'number', 'Only needed for Suggest a split. Use money you have now.')}
+      <fieldset style="border:0;padding:0;margin:0 0 20px"><legend>How would you like to start?</legend>
+        <div class="buttons below" role="group" aria-label="Choose how to compare">
+          <button type="button" id="mode-suggest" class="secondary" data-choice-mode="suggest" aria-pressed="false">Suggest a split</button>
+          <button type="button" id="mode-own" class="primary" data-choice-mode="own" aria-pressed="true">My own plan</button>
+        </div>
+      </fieldset>
+      <p id="comparison-instruction"></p>
+      <div id="split-budget-wrap" hidden>${field('split-budget', 'How much do you want to divide?', '', 'number', 'Use money you have now.')}</div>
       <div id="w-items" class="below"></div>
       <button class="secondary" type="button" data-action="add-item" data-prefix="w">+ Add another item</button>
-      <p>Enter your planned amount for each item. For suggested splits, these amounts are the most you want to put toward each item.</p>
+
       <div id="split-priority"></div>
       ${protectedControl('w')}
       <div class="buttons below">
-        <button class="primary" type="submit" data-compare="suggest">Suggest a split</button>
-        <button class="secondary" type="submit" data-compare="own">Compare my plan</button>
+        <button class="primary" type="submit" id="see-comparison">See comparison</button>
       </div>
       <div id="whatif-error" class="error" role="alert"></div>
     </form><div id="whatif-results" class="below"></div>`;
@@ -295,6 +302,7 @@ renderItems = function (prefix) {
   const selected = $('split-priority-choice')?.value || '';
   $('split-priority').innerHTML = select('split-priority-choice', 'What matters most? (optional)',
     [['', 'No preference'], ...whatItems.filter(x => x.type !== 'income').map(x => [x.id, x.name || x.type])], selected);
+  updateComparisonLabels();
 };
 
 render = function () {
@@ -309,7 +317,7 @@ render = function () {
 };
 
 document.addEventListener('submit', event => {
-  if (event.target.id === 'whatif-form') comparisonAction = event.submitter?.dataset.compare || 'own';
+  if (event.target.id === 'whatif-form') comparisonAction = $('mode-suggest')?.getAttribute('aria-pressed') === 'true' ? 'suggest' : 'own';
 }, true);
 
 runScenario = function () {
@@ -325,7 +333,7 @@ runScenario = function () {
     const priority = $('split-priority-choice').value;
     let plans;
     if (comparisonAction === 'suggest') {
-      if (hasIncome) throw new Error('Extra income is a what-if amount. Choose Compare my plan to test it, or remove it before asking to split money you have now.');
+      if (hasIncome) throw new Error('Extra income is a what-if amount. Choose My own plan to test it, or remove it before asking to split money you have now.');
       const budget = cents($('split-budget').value);
       if (budget <= 0) throw new Error('Enter how much you would like to split.');
       plans = itemOptions(state, items, budget, released, priority);
@@ -395,3 +403,40 @@ homeView = function () {
   return previousHomeView().replace(/<div class="grid action-grid">[\s\S]*?<div class="section-label">/, `<div class="grid action-grid"><button class="card action-card" data-action="navigate" data-page="compare"><div class="action-icon">⇄</div><h3>Compare choices</h3><p>Try your own plan or ask for a suggested split. See what each choice would leave you with.</p><span class="arrow">→</span></button></div><div class="section-label">`);
 };
 render();
+
+function updateComparisonLabels() {
+  if (!$('whatif-form') || !$('mode-own')) return;
+  const suggest = comparisonAction === 'suggest';
+  for (const mode of ['own', 'suggest']) {
+    const button = $('mode-' + mode), active = mode === comparisonAction;
+    button.className = active ? 'primary' : 'secondary';
+    button.setAttribute('aria-pressed', String(active));
+  }
+  $('comparison-instruction').textContent = suggest
+    ? 'Choose what to split your money between. Add a maximum amount for each item below.'
+    : 'What would you like to do with your money? Add each payment, purchase, or savings amount below.';
+  $('split-budget-wrap').hidden = !suggest;
+  $('split-budget').disabled = !suggest;
+  $('split-budget').required = suggest;
+  for (let i = 0; i < whatItems.length; i++) {
+    const input = $('w-amount-' + i);
+    if (!input) continue;
+    const label = document.querySelector('label[for="w-amount-' + i + '"]');
+    label.textContent = suggest ? 'Maximum for this item' : 'Your amount';
+    const hint = input.parentElement.querySelector('small');
+    hint.textContent = suggest ? 'The most you want to put toward this item.'
+      : whatItems[i].type === 'income' ? 'Extra money you want to include in this what-if.'
+      : 'How much you want to pay, spend, or save.';
+  }
+}
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-choice-mode]');
+  if (!button || !$('whatif-form')) return;
+  syncItems('w');
+  comparisonAction = button.dataset.choiceMode;
+  pending = null; options = [];
+  $('whatif-results').innerHTML = '';
+  $('whatif-error').textContent = '';
+  updateComparisonLabels();
+});
+updateComparisonLabels();
