@@ -6,8 +6,17 @@ const fixture=()=>({version:2,cash:32000,savings:40000,essentials:11000,income:5
 const goal=(s,type='savings')=>createGoal(s,{type,target:10000,deadline:'2026-10-28',debtId:'card'},s.asof);
 test('new savings goal starts at zero and previews do not change saved balances',()=>{const s=fixture();s.goal=goal(s);const before=structuredClone(s);assert.equal(goalProgress(s).net,0);assert.equal(goalProgress(s).weekly,5000);const r=simulateItems(s,[{type:'protect',amount:6000}]);assert.equal(goalProgress(s,r).remaining,4000);assert.deepEqual(s,before);});
 test('releasing savings offsets a transfer rather than double counting progress',()=>{const s=fixture();s.goal=goal(s);const r=simulateItems(s,[{type:'protect',amount:6000}],6000);assert.equal(goalProgress(s,r).net,0);assert.equal(goalProgress(s,simulateItems(s,[],5000)).remaining,15000);});
-test('debt goal responds only to selected debt and recording is reversible',()=>{const s=fixture();s.goal=goal(s,'debt');const items=[{type:'debt',debtId:'card',amount:6000}];assert.equal(goalProgress(s,simulateItems(s,items)).remaining,4000);const recorded=recordItems(s,items);assert.equal(goalProgress(recorded).remaining,4000);assert.equal(goalProgress(s).remaining,10000);assert.equal(goalProgress(s,simulateItems(s,[{type:'purchase',amount:6000}])).net,0);});
-test('removed debt, passed deadline and completed target stay explicit',()=>{const s=fixture();s.goal=goal(s,'debt');assert.equal(goalProgress(s,null,'2026-10-29').weekly,null);s.debts[0].balance=70000;assert.equal(goalProgress(s).remaining,0);assert.equal(goalProgress(s).percent,100);s.debts=[];assert.equal(goalProgress(s).unavailable,true);});
+test('debt goal responds to payments and recording is reversible',()=>{const s=fixture();s.goal=goal(s,'debt');const items=[{type:'debt',debtId:'card',amount:6000}];assert.equal(goalProgress(s,simulateItems(s,items)).remaining,4000);const recorded=recordItems(s,items);assert.equal(goalProgress(recorded).remaining,4000);assert.equal(goalProgress(s).remaining,10000);assert.equal(goalProgress(s,simulateItems(s,[{type:'purchase',amount:6000}])).net,0);});
+test('legacy single-debt goal retains its original meaning',()=>{const s=fixture();s.goal=goal(s,'debt');s.goal.debtId='card';assert.equal(goalProgress(s,null,'2026-10-29').weekly,null);s.debts[0].balance=70000;assert.equal(goalProgress(s).remaining,0);assert.equal(goalProgress(s).percent,100);s.debts=[];assert.equal(goalProgress(s).unavailable,true);});
 test('reject invalid and unrealistic goal input',()=>{const s=fixture();for(const data of [{type:'debt',target:90001,deadline:'2026-10-28',debtId:'card'},{type:'savings',target:0,deadline:'2026-10-28'},{type:'savings',target:100,deadline:'2026-02-30'},{type:'savings',target:100,deadline:'2026-10-14'}])assert.throws(()=>createGoal(s,data,s.asof));});
 test('goal preference preserves equal budget comparisons',()=>{const s=fixture();s.goal=goal(s);const items=[{id:'card',type:'debt',debtId:'card',name:'Card',amount:90000},{id:'save',type:'protect',name:'Savings',amount:10000}];const plans=itemOptions(s,items,6000,0,'save');assert.ok(plans.some(p=>goalProgress(s,p.result).net===6000));assert.ok(plans.every(p=>p.result.total===6000));});
 
+
+test('total debt goal includes every debt, previews and new borrowing',()=>{
+ const s=fixture();s.debts.push({...s.debts[0],id:'friend',name:'Friend',balance:30000,apr:0});
+ s.goal=createGoal(s,{type:'debt',target:100000,deadline:'2026-11-30'},s.asof);
+ assert.equal(s.goal.baseline,120000);assert.equal(s.goal.debtId,'');
+ const r=simulateItems(s,[{type:'debt',debtId:'friend',amount:2000},{type:'debt',debtId:'card',amount:3000}]);
+ assert.equal(goalProgress(s,r).net,5000);assert.equal(goalProgress(s).net,0);
+ s.debts.push({...s.debts[0],id:'new',balance:10000});assert.equal(goalProgress(s).net,-10000);
+});

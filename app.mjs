@@ -205,8 +205,8 @@ function goalName(){const g=state.goal;return !g?'':g.type==='savings'?`Save an 
 function goalSummary(result=null){const g=state.goal,p=goalProgress(state,result,today());if(!g)return '';if(p.unavailable)return '<div class="note below">Your goal’s debt was removed. <a href="#goal">Choose a new goal</a>.</div>';const current=goalProgress(state,null,today()),change=p.net-current.net;return `<div class="note below"><b>${esc(goalName())}</b> by ${date(g.deadline)}<p>${money(p.remaining)} ${result?'would remain':'remaining'} to reach your goal.${result?` This choice ${change<0?'moves you back by':change>0?'moves you closer by':'changes progress by'} ${money(Math.abs(change))}.`:''}</p><progress aria-label="Goal progress" max="100" value="${p.percent}"></progress><p class="disclosure">${p.remaining===0?'Target reached.':p.weekly!==null?`${money(p.weekly)} per week needed over the remaining ${p.days} days. This is a target pace, not a prediction of what you can afford.`:'The target date has arrived or passed. Update your goal when ready.'}</p></div>`;}
 function goalCard(){return `<section class="card goal-card"><div class="result-heading"><h2>My goal <small class="muted">Optional</small></h2><a class="text-btn" href="#goal">${state.goal?'Edit goal':'Set a goal'} →</a></div>${state.goal?goalSummary():'<p>Save for something or pay down a debt. See how each choice affects your progress.</p>'}</section>`;}
 function goalView(){const g=state.goal;return heading('One goal to work toward.','Optional. You can compare choices without setting a goal.')+`<form id="goal-form" class="card">${g?goalSummary():''}<p>Saving tracks the net increase in your total protected savings from when you set the goal. Debt progress tracks the reduction in the selected debt balance. Editing your balances also updates progress.</p><div class="form-grid">${select('goal-type','I want to',[['savings','Save more money'],['debt','Pay down a debt']],g?.type||'savings')}${field('goal-target','Additional amount to save or pay down',g?value(g.target):'','number','USD. Existing savings do not count toward this additional amount.','required')}${field('goal-deadline','Target date',g?.deadline||'','date','','required min="'+today()+'"')}<div id="goal-debt-field" ${g?.type==='debt'?'':'hidden'}>${select('goal-debt','Debt to pay down',state.debts.filter(d=>d.balance>0).map(d=>[d.id,d.name]),g?.debtId||'')}</div></div><p class="disclosure">Saving a new or edited goal starts tracking from today’s balances. This does not set aside or move money. In Help me decide, include a savings item or the relevant debt to compare progress.</p><div id="goal-error" class="error" role="alert"></div><div class="buttons below"><button class="primary">${g?'Replace goal and restart progress':'Save goal'}</button>${g?'<button type="button" class="secondary" data-action="remove-goal">Remove goal</button>':''}<a class="text-btn" href="#home">Back to overview</a></div></form>`;}
-document.addEventListener('change',e=>{if(e.target.id==='goal-type')$('goal-debt-field').hidden=e.target.value!=='debt';});
-document.addEventListener('submit',e=>{if(e.target.id!=='goal-form')return;e.preventDefault();try{state.goal=createGoal(state,{type:$('goal-type').value,target:cents($('goal-target').value),deadline:$('goal-deadline').value,debtId:$('goal-debt').value},today());undo=null;pending=null;save();if(!setupActive)location.hash='home';else render();toast('Goal saved. Your balances have not changed.');}catch(error){$('goal-error').textContent=error.message;}});
+document.addEventListener('change',e=>{if(e.target.id==='goal-type'&&$('goal-debt-field'))$('goal-debt-field').hidden=e.target.value!=='debt';});
+document.addEventListener('submit',e=>{if(e.target.id!=='goal-form')return;e.preventDefault();try{state.goal=createGoal(state,{type:$('goal-type').value,target:cents($('goal-target').value),deadline:$('goal-deadline').value,debtId:''},today());undo=null;pending=null;save();if(!setupActive)location.hash='home';else render();toast('Goal saved. Your balances have not changed.');}catch(error){$('goal-error').textContent=error.message;}});
 document.addEventListener('click',e=>{if(e.target.closest('[data-action="remove-goal"]')){delete state.goal;undo=null;pending=null;save();render();toast('Goal removed. Your balances have not changed.');}});
 
 
@@ -226,8 +226,8 @@ if(!Number.isInteger(setupStep)||setupStep<0||setupStep>5)setupStep=0;
 let setupActive=!state.setupComplete;
 const steps=['Your money','Essentials','Bills','Debts','Goal','Review'];
 function stepButtons(){return `<div class="buttons below"><button class="secondary" data-action="setup-back" ${setupStep===0?'disabled':''}>Back</button><button class="primary" data-action="setup-next">${setupStep===5?'Finish & compare choices':setupStep===4&&!state.goal?'Skip goal & review':'Save & next →'}</button></div><p class="disclosure">Saved in this browser. You can change these details later.</p>`;}
-function basicMoney(){return heading('Your money','Two separate amounts. Count each dollar only once.')+`<form id="guided-money" class="card"><div class="form-grid">${field('cash','Spendable money',state.knownFields.includes('cash')?value(state.cash):'','number','Bank balances and cash, excluding protected savings. Bills and essentials still come from this.','required')}${field('savings','Protected savings',state.knownFields.includes('savings')?value(state.savings):'','number','Money you want to leave untouched. Enter 0 if you have none.','required')}</div><div id="guided-error" class="error" role="alert"></div>${setupActive?'':'<button class="primary below">Save money</button>'}</form>`;}
-function essentialsView(){return heading('What needs to last?','Set aside room for everyday needs before comparing choices.')+`<form id="guided-essentials" class="card">${field('essentials','Essentials still to cover',state.knownFields.includes('essentials')?value(state.essentials):'','number','Estimate food, transport, and other everyday needs. Exclude debts and bills you will enter separately. Enter 0 if none.','required')}${field('payday','Next income date (optional)',state.payday,'date','Only sets the planning window; future income is never added to your balance. Leave blank to use 30 days.')}<div id="guided-error" class="error" role="alert"></div>${setupActive?'':'<button class="primary below">Save essentials</button>'}</form>`;}
+function basicMoney(){return heading('Your money','Two separate amounts. Count each dollar only once.')+`<form id="guided-money" class="card"><div class="form-grid">${field('cash','Spendable money',state.knownFields.includes('cash')?value(state.cash):'','number','Bank balances and cash, excluding protected savings. Bills and essentials still come from this.','required')}${field('savings','Protected savings',state.knownFields.includes('savings')?value(state.savings):'','number','Money you want to leave untouched. Enter 0 if you have none.','required')}</div><div id="guided-error" class="error" role="alert"></div>${setupActive?'':'<button class="primary below">Save & continue →</button>'}</form>`;}
+function essentialsView(){return heading('What needs to last?','Set aside room for everyday needs before comparing choices.')+`<form id="guided-essentials" class="card">${field('essentials','Essentials still to cover',state.knownFields.includes('essentials')?value(state.essentials):'','number','Estimate food, transport, and other everyday needs. Exclude debts and bills you will enter separately. Enter 0 if none.','required')}${field('payday','Next income date (optional)',state.payday,'date','Only sets the planning window; future income is never added to your balance. Leave blank to use 30 days.')}<div id="guided-error" class="error" role="alert"></div>${setupActive?'':'<button class="primary below">Save & continue to bills →</button>'}</form>`;}
 function debtsView(){draftDebts=structuredClone(state.debts);return heading('Debts','Add only what you owe. Unknown APRs and due dates can be left blank.')+`<form id="guided-debts" class="card"><div id="debt-fields"></div><button type="button" class="secondary" data-action="add-debt">+ Add debt</button><p class="disclosure">Payment due is the remaining minimum or agreed installment, not the full balance. Missing due dates are treated cautiously in comparisons.</p><div id="guided-error" class="error" role="alert"></div>${setupActive?'':'<button class="primary below">Save debts</button>'}</form>`;}
 const oldBillsView=billsView;
 billsView=function(){return `<nav class="mode-tabs" aria-label="Bills and debts"><a href="#bills" aria-current="page">Bills & subscriptions</a><a href="#debts">Debts</a></nav>`+oldBillsView();};
@@ -254,7 +254,7 @@ if(!feasible.length){message='None of these plans leaves enough to cover all ent
 if(state.debts.some(d=>!d.due||d.apr===null))message+=' Some debt dates or interest rates are missing; check them before acting.';
 $('pay-results').insertAdjacentHTML('afterbegin',`<section class="card below" aria-live="polite"><h2>Your next step</h2><p>${esc(message)}</p><small>Based on your entries and fixed comparison rules. Future interest, fees, and unentered expenses are not projected.</small></section>`);};
 const basePayView=payView;payView=function(){const html=basePayView();if(state.goal?.type==='savings')payItems.push({id:'goal-savings',type:'protect',name:'Savings goal',amount:goalProgress(state).remaining,inEssentials:false});return html;};
-document.addEventListener('submit',e=>{if(e.target.id.startsWith('guided-')){e.preventDefault();if(saveGuided()){toast('Saved. Your money has not moved.');if(!setupActive)render();}}});
+document.addEventListener('submit',e=>{if(e.target.id.startsWith('guided-')){e.preventDefault();if(saveGuided()){toast('Saved. Your money has not moved.');if(!setupActive){location.hash=e.target.id==='guided-money'?'essentials':e.target.id==='guided-essentials'?'bills':'home';render();}}}});
 document.addEventListener('click',e=>{const action=e.target.closest('[data-action]')?.dataset.action;if(!['setup-back','setup-next'].includes(action))return;if(!saveGuided())return;
 if(action==='setup-next'&&setupStep===2&&$('bill-name').value.trim()){toast('Use Add bill to save this bill before continuing.');return;}
 if(action==='setup-next'&&setupStep===4&&$('goal-target').value.trim()&&!state.goal){toast('Save your goal first, or clear its amount to skip.');return;}
@@ -440,3 +440,35 @@ document.addEventListener('click', event => {
   updateComparisonLabels();
 });
 updateComparisonLabels();
+
+// Simple goals and clear routes after editing.
+goalName = function () {
+ const g=state.goal;
+ if(!g)return '';
+ if(g.type==='savings')return `Save an additional ${money(g.target)}`;
+ return g.debtId ? `Pay ${money(g.target)} toward ${state.debts.find(d=>d.id===g.debtId)?.name||'a removed debt'}` : `Reduce total debt by ${money(g.target)}`;
+};
+goalView = function () {
+ const g=state.goal;
+ return heading('What are you working toward?','Choose an amount and a date. You can change your goal later.')+`<form id="goal-form" class="card">
+ ${g?goalSummary():''}
+ ${g?.debtId?'<p class="note">Your existing goal still tracks one debt. Saving below replaces it with a total-debt goal and starts progress from today.</p>':''}
+ <div class="form-grid">
+ ${select('goal-type','I want to',[['savings','Save more'],['debt','Reduce debt']],g?.type||'savings')}
+ ${field('goal-target','By how much?',g?value(g.target):'','number','The extra amount you want to save, or the amount you want to reduce your total debt by.','required')}
+ ${field('goal-deadline','By when?',g?.deadline||'','date','','required min="'+today()+'"')}
+ </div>
+ <p>Save more tracks the change in your protected savings. Reduce debt tracks the change in all your debt balances added together.</p>
+ <p class="disclosure">Progress starts from today’s balances. Updating your balances also updates progress. Adding debt can lower progress; removing a debt lowers the total, so remove it only when it no longer belongs in your list.</p>
+ <div id="goal-error" class="error" role="alert"></div>
+ <div class="buttons below"><button class="primary">${g?'Replace goal & start from today':'Save goal'}</button>
+ ${g?'<button type="button" class="secondary" data-action="remove-goal">Remove goal</button>':''}
+ ${setupActive?'':'<a class="text-btn" href="#home">Back to overview</a>'}</div></form>`;
+};
+const billsWithNavigation=billsView;
+billsView=function(){return billsWithNavigation()+`<div class="buttons below"><a class="secondary" href="#essentials">← Back to essentials</a><a class="primary" href="#debts">Continue to debts →</a></div>`;};
+const essentialsWithBack=essentialsView;
+essentialsView=function(){return essentialsWithBack()+(setupActive?'':'<p><a class="text-btn" href="#money">← Back to my money</a></p>');};
+const bannerWithSample=banner;
+banner=function(){bannerWithSample();if(state.setupComplete&&!state.demo)$('notice').insertAdjacentHTML('beforeend','<p><button type="button" class="text-btn" data-action="demo">Try sample numbers →</button><small class="muted"> Uses made-up numbers instead of your saved entries. You’ll be asked before replacing them.</small></p>');};
+render();

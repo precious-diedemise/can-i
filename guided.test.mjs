@@ -32,3 +32,14 @@ test('top choice keeps entries and See comparison uses the selected mode',async 
  a.q('mode-own').click();assert.equal(a.q('whatif-results').innerHTML,'');assert.equal(a.q('w-amount-0').value,'100');
  await a.submit('whatif-form');assert.equal(a.run('options[0].result.total'),10000);assert.equal(a.run('state.cash'),saved().cash);
 });
+
+test('essentials continues to bills, sample numbers remain accessible, total-debt goal has no picker',async t=>{
+ const a=await setup(saved());t.after(a.close);await a.route('#essentials');a.fill('essentials','90');await a.submit('guided-essentials');
+ assert.equal(a.w.location.hash,'#bills');assert.equal(a.run('state.essentials'),9000);
+ assert.ok(a.w.document.querySelector('a[href="#debts"]'));
+ assert.ok(a.w.document.querySelector('[data-action="demo"]'));
+ await a.route('#goal');assert.equal(a.q('goal-debt'),null);a.fill('goal-type','debt');a.fill('goal-target','100');a.fill('goal-deadline','2099-01-01');await a.submit('goal-form');
+ assert.equal(a.run('state.goal.debtId'),'');assert.equal(a.run('state.goal.baseline'),a.run('state.debts.reduce((n,d)=>n+d.balance,0)'));
+ const before=a.run('state.cash');a.w.confirm=()=>false;a.w.document.querySelector('[data-action="demo"]').click();assert.equal(a.run('state.cash'),before);
+ a.w.confirm=()=>true;a.w.document.querySelector('[data-action="demo"]').click();assert.equal(a.run('state.demo'),true);
+});
