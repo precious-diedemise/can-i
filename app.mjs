@@ -261,3 +261,137 @@ if(action==='setup-next'&&setupStep===4&&$('goal-target').value.trim()&&!state.g
 if(action==='setup-next'&&setupStep===5){state.setupComplete=true;setupActive=false;setupStep=0;save();localStorage.removeItem('can-i-setup-step');location.hash='compare';render();return;}
 setupStep=Math.max(0,Math.min(5,setupStep+(action==='setup-next'?1:-1)));localStorage.setItem('can-i-setup-step',setupStep);render();window.scrollTo({top:0});});
 render();
+
+// One comparison screen: paste at the END of app.mjs.
+let comparisonAction = 'own';
+let comparisonDraft = null;
+const previousRender = render;
+const previousWhatifView = whatifView;
+
+compareTabs = () => '';
+whatifView = function () {
+  previousWhatifView();
+  
+  return heading('Compare choices', 'Try your own plan or ask for a suggested split. You stay in control.') + `
+    <form id="whatif-form" class="card">
+      ${field('split-budget', 'How much would you like to split?', '', 'number', 'Only needed for Suggest a split. Use money you have now.')}
+      <div id="w-items" class="below"></div>
+      <button class="secondary" type="button" data-action="add-item" data-prefix="w">+ Add another item</button>
+      <p>Enter your planned amount for each item. For suggested splits, these amounts are the most you want to put toward each item.</p>
+      <div id="split-priority"></div>
+      ${protectedControl('w')}
+      <div class="buttons below">
+        <button class="primary" type="submit" data-compare="suggest">Suggest a split</button>
+        <button class="secondary" type="submit" data-compare="own">Compare my plan</button>
+      </div>
+      <div id="whatif-error" class="error" role="alert"></div>
+    </form><div id="whatif-results" class="below"></div>`;
+};
+
+const previousRenderItems = renderItems;
+renderItems = function (prefix) {
+  previousRenderItems(prefix);
+  if (prefix !== 'w' || !$('split-priority')) return;
+  const selected = $('split-priority-choice')?.value || '';
+  $('split-priority').innerHTML = select('split-priority-choice', 'What matters most? (optional)',
+    [['', 'No preference'], ...whatItems.filter(x => x.type !== 'income').map(x => [x.id, x.name || x.type])], selected);
+};
+
+render = function () {
+  const requested = location.hash.slice(1);
+  if (state.setupComplete && ['compare', 'pay', 'chat'].includes(requested)) {
+    window.history.replaceState(null, '', '#whatif');
+  }
+  previousRender();
+  if ($('whatif-form')) {
+    document.querySelectorAll('[data-nav="compare"]').forEach(a => a.setAttribute('aria-current', 'page'));
+  }
+};
+
+document.addEventListener('submit', event => {
+  if (event.target.id === 'whatif-form') comparisonAction = event.submitter?.dataset.compare || 'own';
+}, true);
+
+runScenario = function () {
+  try {
+    syncItems('w');
+    comparisonDraft = structuredClone(whatItems);
+    const items = whatItems.filter(x => x.amount > 0);
+    if (!items.length) throw new Error('Add at least one item and an amount.');
+    const released = release('w');
+    const hasIncome = items.some(x => x.type === 'income');
+    const own = {title: 'Your plan', items, result: simulateItems(state, items, released)};
+    const baseline = {title: 'Keep things as they are', items: [], release: 0, result: simulateItems(state, [])};
+    const priority = $('split-priority-choice').value;
+    let plans;
+    if (comparisonAction === 'suggest') {
+      if (hasIncome) throw new Error('Extra income is a what-if amount. Choose Compare my plan to test it, or remove it before asking to split money you have now.');
+      const budget = cents($('split-budget').value);
+      if (budget <= 0) throw new Error('Enter how much you would like to split.');
+      plans = itemOptions(state, items, budget, released, priority);
+      if (!plans.length) throw new Error('No money can be split across these items. Check your amounts.');
+    } else {
+      plans = [own];
+      if (!hasIncome && own.result.total > 0 && own.result.cash >= 0) {
+        const limits = items.map(x => ({...x, amount:
+          x.type === 'debt' ? Math.min(own.result.total, state.debts.find(d => d.id === x.debtId).balance) :
+          x.type === 'recurring' ? Math.min(own.result.total, state.bills.find(b => b.id === x.billId).amount - (state.bills.find(b => b.id === x.billId).paid || 0)) :
+          x.type === 'protect' ? own.result.total : x.amount}));
+        const alternatives = itemOptions(state, limits, own.result.total, released, priority);
+        const same = p => items.every(x => (p.items.find(y => y.id === x.id)?.amount || 0) === x.amount);
+        plans.push(...alternatives.filter(p => !same(p)));
+      }
+    }
+    options = plans;
+    pending = null;
+    $('whatif-error').textContent = '';
+    const compared = [baseline, ...plans];
+    $('whatif-results').innerHTML = `<section class="card"><h2>Here’s what would change</h2>
+      <p>Just a preview. Nothing has been paid or moved.${hasIncome ? ' Extra income is included only as a possibility, not money you already have.' : ''}</p>
+      ${itemResultsTable(compared)}
+      <p>${comparisonAction === 'suggest' ? `Each suggested split uses ${money(plans[0].result.total)}. Any amount that cannot be allocated stays available.` : 'Your amounts are used exactly as entered. Alternatives may put more toward a debt or savings, but never increase a purchase above the amount you entered.'}</p>
+      </section>` + plans.map((p, i) => `<section class="card below"><h3>${esc(p.title)}</h3>
+        <p>${itemsHTML(p.items)}</p>${stat('Spendable money after', p.result.cash)}
+        ${goalSummary(p.result)}${warningHTML(p.result)}${commitmentForecast(p.result)}
+        <p>${p.result.room < 0 ? `This leaves a ${money(-p.result.room)} gap for entered essentials and payments. Consider changing the plan.` : 'This leaves enough for the essentials and payments you entered in the planning window.'}</p>
+        <button type="button" class="secondary" data-action="unified-review" data-index="${i}">Review this plan</button></section>`).join('') + '<div id="plan-review" class="below"></div>';
+  } catch (error) {
+    pending = null; options = [];
+    $('whatif-error').textContent = error.message;
+    $('whatif-results').innerHTML = '';
+  }
+};
+
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-action="unified-review"]');
+  if (!button) return;
+  const plan = options[Number(button.dataset.index)];
+  if (!plan) return;
+  pending = {label: plan.title, items: structuredClone(plan.items), release: release('w')};
+  $('plan-review').innerHTML = `<section class="card"><h2>${esc(plan.title)}</h2><p>${itemsHTML(plan.items)}</p>
+    <p>Save this as a plan, or record it only after you have actually done it.</p>
+    <button type="button" class="secondary" data-action="save-plan">Save plan</button>
+    ${plan.result.cash >= 0 ? '<button type="button" class="primary" data-action="record-dialog">I completed these actions</button>' : ''}</section>`;
+  $('plan-review').scrollIntoView({behavior: 'smooth', block: 'start'});
+});
+document.addEventListener('click', event => {
+  if (['clear','demo'].includes(event.target.closest('[data-action]')?.dataset.action)) comparisonDraft = null;
+}, true);
+// Editing invalidates old results before they can be recorded.
+document.addEventListener('input', event => {
+  if (!event.target.closest('#whatif-form')) return;
+  options = []; pending = null;
+  if ($('plan-review')) $('plan-review').innerHTML = '';
+});
+document.addEventListener('change', event => {
+  if (!event.target.closest('#whatif-form')) return;
+  options = []; pending = null;
+  $('whatif-results').innerHTML = '';
+});
+render();
+
+const previousHomeView = homeView;
+homeView = function () {
+  return previousHomeView().replace(/<div class="grid action-grid">[\s\S]*?<div class="section-label">/, `<div class="grid action-grid"><button class="card action-card" data-action="navigate" data-page="compare"><div class="action-icon">⇄</div><h3>Compare choices</h3><p>Try your own plan or ask for a suggested split. See what each choice would leave you with.</p><span class="arrow">→</span></button></div><div class="section-label">`);
+};
+render();
