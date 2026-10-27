@@ -48,7 +48,13 @@ function renderDebtFields(){ $('debt-fields').innerHTML=draftDebts.length?draftD
 function syncDraft(){draftDebts=draftDebts.map((d,i)=>({...d,name:$('dn-'+i).value.trim(),type:$('dt-'+i).value,balance:cents($('db-'+i).value),apr:$('da-'+i).value===''?null:Number($('da-'+i).value),minimum:cents($('dm-'+i).value),due:$('dd-'+i).value}));}
 function saveMoney(){try{syncDraft();const next={...state,demo:false,cash:cents($('cash').value),savings:cents($('savings').value),essentials:cents($('essentials').value),income:state.income||0,payday:$('payday').value,asof:today(),preferences:$('preferences').value.trim(),debts:draftDebts};cleanState(next);state=next;undo=null;pending=null;save();location.hash='home';toast('Your numbers are saved.');}catch(e){$('money-error').textContent=e.message;}}
 function historyView(){return heading('Your decisions, kept separate.','Saved plans are previews. Recorded payments change your numbers.')+`<section class="card"><div class="buttons">${undo?'<button class="secondary" data-action="undo">Undo last confirmed update</button>':''}</div>${history.length?history.slice().reverse().map(h=>`<div class="history-entry"><span class="pill">${h.kind==='payment'?'RECORDED ACTIONS':h.kind==='undo'?'UNDONE':h.kind==='facts'?'CONFIRMED UPDATE':'SAVED PLAN'}</span><p><b>${esc(h.label)}</b> · ${money(h.total)}</p><p class="muted">${esc(h.description)}</p><small class="muted">${new Date(h.at).toLocaleString()}</small></div>`).join(''):'<div class="empty"><div class="welcome-spark">✳</div><h2>Nothing recorded yet.</h2><p class="muted">Explore a comparison, then save a plan or record a payment you’ve made.</p><a href="#whatif" class="text-btn">Try a what-if →</a></div>'}</section>`;}
-function addItemHistory(kind,plan,r){history.push({id:crypto.randomUUID(),kind,label:plan.label,total:r.total,description:plan.items.map(x=>money(x.amount)+' → '+x.name).join('; '),at:new Date().toISOString()});history=history.slice(-100);}
+function addItemHistory(kind,plan,r){
+ const flow=activityAmounts(plan.items,plan.release||0);
+ history.push({id:crypto.randomUUID(),kind,label:plan.label,total:flow.moneyIn+flow.moneyOut+flow.toSavings+flow.fromSavings,
+ description:plan.items.filter(x=>x.amount>0).map(x=>money(x.amount)+' → '+x.name).join('; '),
+ items:structuredClone(plan.items),release:plan.release||0,flow,occurredOn:kind==='payment'?plan.occurredOn:null,
+ source:plan.source||'comparison',at:new Date().toISOString()});
+} 
 function addHistory(kind,label,total,a){history.push({id:crypto.randomUUID(),kind,label,total,description:Object.entries(a||{}).filter(([,n])=>n>0).map(([id,n])=>`${money(n)} toward ${state.debts.find(d=>d.id===id)?.name||'debt'}`).join('; ')||'Cash stays available',at:new Date().toISOString()});history=history.slice(-100);}
 document.addEventListener('submit',e=>{const id=e.target.id;if(['pay-form','whatif-form','money-form'].includes(id)){e.preventDefault();({ 'pay-form':comparePayments,'whatif-form':runScenario,'money-form':saveMoney})[id]();}});
 document.addEventListener('change',e=>{if(/^[pw]-type-/.test(e.target.id)){const prefix=e.target.id[0],index=Number(e.target.id.split('-').at(-1));syncItems(prefix);itemsFor(prefix)[index].name='';itemsFor(prefix)[index].inEssentials=false;renderItems(prefix);}if(/^[pw]-(target|bill)-/.test(e.target.id)){const prefix=e.target.id[0];syncItems(prefix);renderItems(prefix);}for(const prefix of ['p','w'])if(e.target.id===prefix+'-use')$(prefix+'-releasebox').classList.toggle('hidden',!e.target.checked);});
@@ -63,12 +69,23 @@ if(action==='remove-item'){const prefix=btn.dataset.prefix;syncItems(prefix);ite
 if(action==='add-debt'){syncDraft();if(draftDebts.length>=30){toast('This prototype supports up to 30 debts.');return;}draftDebts.push({id:crypto.randomUUID(),name:'',type:'Credit card',balance:0,apr:null,minimum:0,due:''});renderDebtFields();}
 if(action==='remove-debt'){syncDraft();draftDebts.splice(Number(btn.dataset.index),1);renderDebtFields();}
 if(action==='save-plan'&&pending){const r=simulateItems(state,pending.items,pending.release);addItemHistory('plan',pending,r);save();toast('Plan saved. Your balances have not changed.');}
-if(action==='record-dialog'&&pending){const r=simulateItems(state,pending.items,pending.release);$('confirm-text').textContent=`Record these completed actions: ${pending.items.filter(x=>x.amount>0).map(x=>money(x.amount)+' → '+x.name).join('; ')}${pending.release?'; include '+money(pending.release)+' from protected savings':''}?`;$('confirm').showModal();}
+if(action==='record-dialog'&&pending){const r=simulateItems(state,pending.items,pending.release);$('confirm-text').textContent=`Record these completed actions: ${pending.items.filter(x=>x.amount>0).map(x=>money(x.amount)+' → '+x.name).join('; ')}${pending.release?'; include '+money(pending.release)+' from protected savings':''}?`;openActivityConfirmation();}
 if(action==='undo'&&undo){state=undo.state;conversation.eventNote('I undid the last confirmed action. Use the current financial snapshot.');const entry=history.find(h=>h.id===undo.entryId);if(entry)entry.kind='undo';undo=null;pending=null;save();render();toast('Last recorded actions undone.');}
 if(action==='clear'){if(!window.confirm('Clear saved numbers and activity from this browser?'))return;state={version:2,demo:false,cash:0,savings:0,essentials:0,income:0,payday:'',asof:today(),priority:'',debts:[]};history=[];undo=null;pending=null;save();location.hash='money';render();toast('Start with your own numbers.');}
 if(action==='demo'){if(!window.confirm('Replace current numbers and activity with the fictional example?'))return;state=demo();history=[];undo=null;pending=null;save();location.hash='home';render();toast('Fictional example loaded.');}
 });
-$('confirm').addEventListener('close',()=>{if($('confirm').returnValue!=='record'||!pending)return;try{const before=structuredClone(state);const r=simulateItems(state,pending.items,pending.release);const updated=recordItems(state,pending.items,pending.release);addItemHistory('payment',pending,r);undo={state:before,entryId:history.at(-1).id};state=updated;pending=null;save();location.hash='home';render();toast('Actions recorded. You can undo them in Activity.');}catch(e){toast(e.message);}});
+$('confirm').addEventListener('close',()=>{
+ if($('confirm').returnValue!=='record'||!pending)return;
+ try{
+  const occurredOn=checkActivityDate($('activity-date').value);
+  const before=structuredClone(state),plan={...pending,occurredOn};
+  const r=simulateItems(state,plan.items,plan.release),updated=recordItems(state,plan.items,plan.release);
+  cleanState(updated);
+  addItemHistory('payment',plan,r);
+  undo={state:before,entryId:history.at(-1).id};state=updated;pending=null;options=[];save();
+  location.hash='history';render();toast('Recorded once. Your money and Activity are updated.');
+ }catch(e){toast(e.message);}
+});
 window.addEventListener('hashchange',()=>{pending=null;render();window.scrollTo({top:0,behavior:'smooth'});});if(storageProblem)toast('Could not restore saved data. Enter your numbers or try the sample.');
 // Blank starting figures and optional sample mode.
 function blankStartState() {
@@ -183,7 +200,7 @@ document.addEventListener('click', function (event) {
   )) return;
 
   state = action === 'demo'
-    ? { ...demo(), setupComplete: true }
+    ? { ...demo(), setupComplete: true, bills: [], knownFields: ['cash','savings','essentials'] }
     : blankStartState();
   conversation.reset();
   setupStep=0;localStorage.removeItem('can-i-setup-step');
@@ -217,7 +234,7 @@ const conversation={eventNote(){},reset(){}};
 let editingBillId=null;
 function billsView(){const b=(state.bills||[]).find(x=>x.id===editingBillId);let forecast;try{forecast=billSchedule(state);}catch(e){forecast={rows:[],end:'',assumed:true,error:e.message};}return heading('Bills & subscriptions','Keep track of what renews, how much, and when.')+`<section class="card form-card"><p>Adding a bill does not deduct money. It helps comparisons show what is coming up. If it is already included in your essentials estimate, tick the box below to count it once.</p>${forecast.error?`<div class="warn">${esc(forecast.error)}</div>`:''}${stat('Scheduled bills through '+date(forecast.end),forecast.rows.reduce((t,x)=>t+x.amount,0))}<p class="disclosure">${forecast.assumed?'Using a 30-day window. Set your optional next income date in My money to change it.':''} Past dates are kept until you record or update them; check for payments you may already have made.</p></section><form id="bill-form" class="card"><h2>${b?'Edit bill':'Add a bill'}</h2><div class="form-grid">${field('bill-name','Name',b?.name||'','text','For example: rent, phone, Spotify','required maxlength="60"')}${field('bill-amount','Amount',b?value(b.amount):'','number','','required')}${field('bill-date','Next unpaid due / renewal date',b?.nextDue||'','date','','required')}${select('bill-frequency','Frequency',frequencies.map(x=>[x,({once:'One time',weekly:'Weekly',fortnightly:'Every two weeks',monthly:'Monthly',yearly:'Yearly'})[x]]),b?.frequency||'monthly')}</div><label class="check below"><input id="bill-auto" type="checkbox" ${b?.autoRenew?'checked':''}>Renews or is paid automatically</label><label class="check below"><input id="bill-included" type="checkbox" ${b?.inEssentials?'checked':''}>Already included in my essentials estimate for this planning window</label><div id="bill-error" class="error" role="alert"></div><div class="buttons below"><button class="primary">${b?'Save changes':'Add bill'}</button>${b?'<button type="button" class="text-btn" data-action="cancel-bill">Cancel edit</button>':''}</div></form><div class="stack below">${(state.bills||[]).map(x=>`<section class="card"><div class="result-heading"><h3>${esc(x.name)}</h3><span class="pill">${x.active?'ACTIVE':'INACTIVE'}</span></div>${stat(x.frequency+' amount',x.amount)}<p>Next unpaid: ${date(x.nextDue)} · ${x.autoRenew?'Automatic renewal':'Manual payment'}${x.paid?'<br>'+money(x.paid)+' already recorded for this occurrence':''}</p><p class="disclosure">${x.inEssentials?'Included in your essentials estimate.':'Listed separately from your essentials.'}</p><div class="buttons"><button class="secondary" data-action="edit-bill" data-id="${esc(x.id)}">Edit</button><button class="text-btn" data-action="toggle-bill" data-id="${esc(x.id)}">${x.active?'Stop including':'Include again'}</button>${x.active&&state.setupComplete?`<button class="text-btn" data-action="record-bill" data-id="${esc(x.id)}">Record payment</button>`:''}</div><p class="disclosure">Stopping inclusion here does not cancel the subscription with its provider.</p></section>`).join('')}</div>`;}
 document.addEventListener('submit',e=>{if(e.target.id!=='bill-form')return;e.preventDefault();try{const old=state.bills.find(x=>x.id===editingBillId),nextDue=$('bill-date').value;const bill=cleanBill({id:old?.id||crypto.randomUUID(),name:$('bill-name').value.trim(),amount:cents($('bill-amount').value),nextDue,frequency:$('bill-frequency').value,autoRenew:$('bill-auto').checked,inEssentials:$('bill-included').checked,paid:old?.nextDue===nextDue?old.paid:0,active:old?.active??true,anchorDay:old?.nextDue===nextDue?old.anchorDay:undefined,anchorMonth:old?.nextDue===nextDue?old.anchorMonth:undefined});const next={...state,bills:old?state.bills.map(x=>x.id===old.id?bill:x):[...state.bills,bill]};cleanState(next);state=next;undo=null;pending=null;editingBillId=null;save();render();toast('Bill saved. Your balance has not changed.');}catch(error){$('bill-error').textContent=error.message;}});
-document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const x=state.bills.find(x=>x.id===b.dataset.id);if(b.dataset.action==='edit-bill'){editingBillId=x?.id;render();}if(b.dataset.action==='cancel-bill'){editingBillId=null;render();}if(b.dataset.action==='toggle-bill'&&x){x.active=!x.active;undo=null;pending=null;save();render();}if(b.dataset.action==='record-bill'&&x){pending={label:'Paid '+x.name,items:[{type:'recurring',billId:x.id,name:x.name,amount:x.amount-x.paid}],release:0};$('confirm-text').textContent='Record '+money(x.amount-x.paid)+' paid to '+x.name+'? Only record this if it is not already reflected in your balance. The next renewal will advance one cycle.';$('confirm').showModal();}});
+document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');if(!b)return;const x=state.bills.find(x=>x.id===b.dataset.id);if(b.dataset.action==='edit-bill'){editingBillId=x?.id;render();}if(b.dataset.action==='cancel-bill'){editingBillId=null;render();}if(b.dataset.action==='toggle-bill'&&x){x.active=!x.active;undo=null;pending=null;save();render();}if(b.dataset.action==='record-bill'&&x){pending={label:'Paid '+x.name,items:[{type:'recurring',billId:x.id,name:x.name,amount:x.amount-x.paid}],release:0};$('confirm-text').textContent='Record '+money(x.amount-x.paid)+' paid to '+x.name+'? Only record this if it is not already reflected in your balance. The next renewal will advance one cycle.';openActivityConfirmation();}});
 
 
 // Guided, local-only experience. No AI endpoint is called.
@@ -243,7 +260,7 @@ $('app-introduction').hidden=!(page==='home'||page==='setup'&&setupStep===0);ban
 const views={home:homeView,money:basicMoney,essentials:essentialsView,bills:billsView,debts:debtsView,goal:goalView,setup:setupView,pay:payView,whatif:whatifView,history:historyView,survey:surveyView,play:playView};
 $('content').innerHTML=(['pay','whatif'].includes(page)?compareTabs(page):'')+(views[page]||homeView)();
 if(page==='money')$('content').insertAdjacentHTML('beforeend','<p><a href="#essentials">Edit essentials & planning window →</a></p>'+goalCard());
-if(page==='home'){$('content').insertAdjacentHTML('afterbegin',goalCard());warningHome();}
+if(page==='home')warningHome();
 if(page==='debts')$('content').insertAdjacentHTML('afterbegin','<nav class="mode-tabs"><a href="#bills">Bills & subscriptions</a><a href="#debts" aria-current="page">Debts</a></nav>');
 if($('debt-fields'))renderDebtFields();if(page==='pay')renderItems('p');if(page==='whatif'){renderItems('w');if(transferredPlan){$('w-use').checked=transferredPlan.release>0;$('w-release').value=value(transferredPlan.release);$('w-releasebox').classList.toggle('hidden',!transferredPlan.release);transferredPlan=null;}}
 };
@@ -471,4 +488,148 @@ const essentialsWithBack=essentialsView;
 essentialsView=function(){return essentialsWithBack()+(setupActive?'':'<p><a class="text-btn" href="#money">← Back to my money</a></p>');};
 const bannerWithSample=banner;
 banner=function(){bannerWithSample();if(state.setupComplete&&!state.demo)$('notice').insertAdjacentHTML('beforeend','<p><button type="button" class="text-btn" data-action="demo">Try sample numbers →</button><small class="muted"> Uses made-up numbers instead of your saved entries. You’ll be asked before replacing them.</small></p>');};
+render();
+
+// Activity dates and dashboard. Uses the existing money calculations and storage.
+function activityAmounts(items,release=0){
+ const flow={moneyIn:0,moneyOut:0,toSavings:0,fromSavings:release};
+ for(const item of items){
+  if(item.type==='income')flow.moneyIn+=item.amount;
+  else if(item.type==='protect')flow.toSavings+=item.amount;
+  else flow.moneyOut+=item.amount;
+ }
+ return flow;
+}
+function checkActivityDate(value){
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(value)||!Number.isFinite(Date.parse(value))||new Date(value).toISOString().slice(0,10)!==value)throw new Error('Choose a valid date.');
+ if(value>today())throw new Error('Use today or an earlier date for something you have completed.');
+ return value;
+}
+function activityDay(entry){
+ if(entry.occurredOn)return entry.occurredOn;
+ const d=new Date(entry.at);if(!Number.isFinite(d.getTime()))return '';
+ return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function fullActivityDate(day){return day?new Date(day+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}):'Date unavailable';}
+function openActivityConfirmation(){
+ const input=$('activity-date');input.value=today();input.max=today();input.setCustomValidity('');
+ $('activity-date-error').textContent='';$('confirm').returnValue='';$('confirm').showModal();
+}
+$('activity-date').addEventListener('input',()=>{$('activity-date').setCustomValidity('');$('activity-date-error').textContent='';});
+$('confirm').querySelector('form').addEventListener('submit',event=>{
+ if(event.submitter?.value==='cancel')return;
+ try{checkActivityDate($('activity-date').value);}catch(error){event.preventDefault();$('activity-date-error').textContent=error.message;}
+});
+function monthFlow(month){
+ const totals={moneyIn:0,moneyOut:0,toSavings:0,fromSavings:0,count:0,older:0};
+ for(const entry of history){
+  if(entry.kind!=='payment'||!activityDay(entry).startsWith(month))continue;
+  if(!entry.flow||!['moneyIn','moneyOut','toSavings','fromSavings'].every(k=>Number.isSafeInteger(entry.flow[k])&&entry.flow[k]>=0)){totals.older++;continue;}
+  totals.count++;for(const key of ['moneyIn','moneyOut','toSavings','fromSavings'])totals[key]+=entry.flow[key];
+ }
+ return totals;
+}
+function flowChart(month){
+ const f=monthFlow(month),max=Math.max(f.moneyIn,f.moneyOut,1);
+ return `<div class="flow-chart" aria-label="Recorded money in and out">
+ ${[['Money in',f.moneyIn,'flow-in'],['Money out',f.moneyOut,'flow-out']].map(([label,n,cls])=>`<div class="flow-row"><div class="result-heading"><span>${label}</span><b>${money(n)}</b></div><div class="flow-track" aria-hidden="true"><span class="${cls}" style="width:${n/max*100}%"></span></div></div>`).join('')}
+ <p class="disclosure">${f.count?'From completed activities you recorded.':'Record an activity to start this chart.'} Savings transfers and saved plans are excluded.</p>
+ ${f.older?'<p class="disclosure">Older entries remain in your history, but lack the details needed for this chart.</p>':''}</div>`;
+}
+function dashboardGoal(){
+ const g=state.goal,p=goalProgress(state,null,today());
+ if(!g)return `<h2>Your goal</h2><p class="muted">Something you want to save for? A debt you want to reduce?</p><a href="#goal" class="text-btn">Set a goal →</a>`;
+ if(p.unavailable)return `<h2>Your goal</h2><p>The debt linked to this goal was removed.</p><a class="text-btn" href="#goal">Update goal →</a>`;
+ return `<div class="result-heading"><h2>Your goal</h2><a class="text-btn" href="#goal">Edit</a></div><p>${esc(goalName())}</p><progress max="100" value="${p.percent}" aria-label="Goal progress"></progress><div class="result-heading below"><strong>${p.remaining===0?'Goal reached':money(p.remaining)+' to go'}</strong><span class="muted">By ${date(g.deadline)}</span></div>`;
+}
+function dashboardUpcoming(){
+ const rows=[...(state.bills||[]).filter(b=>b.active&&b.amount>(b.paid||0)).map(b=>({name:b.name,amount:b.amount-(b.paid||0),due:b.nextDue,href:'#bills'})),
+ ...state.debts.filter(d=>d.minimum>0).map(d=>({name:d.name,amount:d.minimum,due:d.due,href:'#debts'}))].sort((a,b)=>(a.due||'9999').localeCompare(b.due||'9999'));
+ return rows.length?rows.slice(0,3).map(r=>`<div class="stat-row"><span><a href="${r.href}">${esc(r.name)}</a><small class="dashboard-sub">${r.due?`${r.due<today()?'Past due · ':''}${date(r.due)}`:'Add a due date'}</small></span><b>${money(r.amount)}</b></div>`).join('')+(rows.length>3?`<p class="disclosure">${rows.length-3} more in Bills & debts.</p>`:''):'<p class="muted">No unpaid bills or minimum payments entered.</p><a class="text-btn" href="#bills">Add a bill or debt →</a>';
+}
+homeView=function(){
+ const after=state.cash-state.essentials,totalDebt=state.debts.reduce((n,d)=>n+d.balance,0),month=today().slice(0,7);
+ return heading('Make room for better decisions.','Your money at a glance.','<a class="primary dashboard-link" href="#compare">Compare choices ⇄</a>')+`
+ <div class="dashboard-stats">
+ <section class="card dashboard-metric dashboard-main"><div class="label">${after<0?'Essentials gap':'Cash after essentials'}</div><div class="dashboard-number">${money(Math.abs(after))}</div><small>${money(state.cash)} spendable − ${money(state.essentials)} essentials.${after<0?' Essentials need more than you have.':''}</small><p>Bills and debts have not been deducted.</p></section>
+ <section class="card dashboard-metric"><div class="label">Spendable money</div><div class="dashboard-number">${money(state.cash)}</div><a href="#money" class="text-btn">Edit my money →</a></section>
+ <section class="card dashboard-metric"><div class="label">Protected savings</div><div class="dashboard-number">${money(state.savings)}</div><small>Separate from spendable money.</small></section>
+ <section class="card dashboard-metric"><div class="label">Total debt</div><div class="dashboard-number">${money(totalDebt)}</div><a class="text-btn" href="#debts">View debts →</a></section>
+ </div><div class="dashboard-grid below">
+ <section class="card"><div class="result-heading"><h2>Coming up</h2><a class="text-btn" href="#bills">View all →</a></div>${dashboardUpcoming()}<p class="disclosure">Listing a payment here does not subtract it from your money.</p></section>
+ <section class="card">${dashboardGoal()}</section>
+ <section class="card"><div class="result-heading"><h2>This month</h2><a class="text-btn" href="#history">Activity →</a></div>${flowChart(month)}</section>
+ <section class="card"><div class="result-heading"><h2>Recent activity</h2><a class="text-btn" href="#history">View all →</a></div>${history.length?history.slice(-3).reverse().map(h=>`<div class="stat-row"><span>${esc(h.label)}<small class="dashboard-sub">${h.kind==='plan'?'Saved plan':h.kind==='undo'?'Undone':h.kind==='payment'?'Completed':'Balance update'} · ${fullActivityDate(activityDay(h))}</small></span><b>${money(h.total||0)}</b></div>`).join(''):'<p class="muted">Your saved plans and completed actions will appear here.</p><a class="text-btn" href="#history">Add an activity →</a>'}</section>
+ </div><div id="home-warnings" class="below"></div>`;
+};
+warningHome=function(){
+ const r=simulateItems(state,[]);
+ $('home-warnings').innerHTML=`<details class="note"><summary>See upcoming commitments in more detail</summary>${warningHTML(r)}${commitmentForecast(r)}</details>`;
+};
+let activityMonth=today().slice(0,7);
+function activityHistoryEntry(h){
+ const completed=h.kind==='payment',undone=h.kind==='undo',actual=h.occurredOn;
+ const tag=completed?'COMPLETED':undone?'UNDONE':h.kind==='facts'?'BALANCE UPDATE':'SAVED PLAN';
+ const dateLabel=actual?`Happened ${fullActivityDate(actual)}`:`${h.kind==='plan'?'Saved':'Recorded'} ${fullActivityDate(activityDay(h))}`;
+ return `<article class="history-entry"><div class="result-heading"><span class="pill">${tag}</span><span class="muted">${esc(dateLabel)}</span></div><p><b>${esc(h.label)}</b> · ${money(h.total||0)}</p><p class="muted">${esc(h.description)}</p>
+ ${completed?`<details><summary>Edit date</summary><form class="activity-date-edit below" data-entry-id="${esc(h.id)}"><div class="field"><label for="date-${esc(h.id)}">When did this happen?</label><input type="date" id="date-${esc(h.id)}" value="${esc(actual||activityDay(h))}" max="${today()}" required></div><button class="secondary below">Save date</button><p class="disclosure">Changes the activity date only, not your balances.</p><div class="error" role="alert"></div></form></details>`:''}
+ ${completed&&!actual?'<p class="disclosure">Older entry: the actual payment date was not saved. You can set it above.</p>':''}</article>`;
+}
+historyView=function(){
+ const f=monthFlow(activityMonth);
+ return heading('Your activity','Completed actions update your money. Saved plans stay separate.')+`
+ <section class="card"><div class="result-heading"><h2>Money in & out</h2>${field('activity-month','Month',activityMonth,'month','','max="'+today().slice(0,7)+'"')}</div>
+ <div class="activity-totals"><div><small>Money in</small><strong>${money(f.moneyIn)}</strong></div><div><small>Money out</small><strong>${money(f.moneyOut)}</strong></div><div><small>In minus out</small><strong>${money(f.moneyIn-f.moneyOut)}</strong></div></div>
+ ${flowChart(activityMonth)}${f.toSavings||f.fromSavings?`<p class="disclosure">Transfers: ${money(f.toSavings)} into savings · ${money(f.fromSavings)} back to spendable.</p>`:''}</section>
+ <details class="card below" id="manual-activity"><summary>Add money received or spent</summary><p class="disclosure">Only add something missing from Activity and your current balances.</p>
+ <form id="activity-form"><div class="form-grid">
+ ${select('activity-type','What happened?', [['income','Money came in'],['purchase','I paid for something'],['debt','I paid a debt'],['recurring','I paid a saved bill'],['protect','I moved money to savings'],['release','I moved savings to spendable']],'income')}
+ ${field('activity-amount','Amount','','number','','required min="0.01"')}
+ </div><div id="activity-targets" class="below">${field('activity-name','What was it for?','','text','For example: paycheck or refund','required maxlength="60"')}</div>
+ <div class="error" id="activity-error" role="alert"></div><button class="primary below">Review & record →</button></form></details>
+ <section class="card below"><div class="result-heading"><h2>All activity</h2>${undo?'<button class="secondary" data-action="undo">Undo last update</button>':''}</div>
+ <p class="disclosure">Newest activity dates first. The month selector changes the chart above.</p>
+ ${history.length?history.slice().sort((a,b)=>activityDay(b).localeCompare(activityDay(a))||String(b.at).localeCompare(String(a.at))).map(activityHistoryEntry).join(''):'<div class="empty"><h3>Nothing recorded yet.</h3><p>Save a comparison or add your first activity.</p><a class="text-btn" href="#compare">Compare choices →</a></div>'}</section>`;
+};
+function manualActivityFields(){
+ const type=$('activity-type').value;
+ if(type==='debt')$('activity-targets').innerHTML=state.debts.some(d=>d.balance>0)?select('activity-target','Which debt?',state.debts.filter(d=>d.balance>0).map(d=>[d.id,d.name]),''):'<p>Add your debt in <a href="#debts">Bills & debts</a> first.</p>';
+ else if(type==='recurring')$('activity-targets').innerHTML=state.bills.some(b=>b.active)?select('activity-target','Which bill?',state.bills.filter(b=>b.active).map(b=>[b.id,b.name]),''):'<p>Add your bill in <a href="#bills">Bills & debts</a> first.</p>';
+ else if(['protect','release'].includes(type))$('activity-targets').innerHTML='<p class="disclosure">A transfer changes spendable money and savings. It is not income or spending.</p>';
+ else $('activity-targets').innerHTML=field('activity-name','What was it for?','','text',type==='income'?'For example: paycheck or refund':'For example: lunch or a book','required maxlength="60"')+(type==='purchase'?'<label class="check below"><input id="activity-covered" type="checkbox">This was part of my essentials</label><p class="disclosure">Also reduces essentials still to cover, so this expense is counted once.</p>':'');
+}
+document.addEventListener('change',event=>{
+ if(event.target.id==='activity-month'){
+  if(!/^\d{4}-\d{2}$/.test(event.target.value)||event.target.value>today().slice(0,7)){event.target.value=activityMonth;return;}
+  activityMonth=event.target.value;render();
+ }
+ if(event.target.id==='activity-type'){pending=null;manualActivityFields();$('activity-error').textContent='';}
+});
+document.addEventListener('input',event=>{if(event.target.closest('#activity-form'))pending=null;});
+document.addEventListener('submit',event=>{
+ if(event.target.classList.contains('activity-date-edit')){
+  event.preventDefault();try{
+   const day=checkActivityDate(event.target.querySelector('input').value),entry=history.find(h=>h.id===event.target.dataset.entryId&&h.kind==='payment');
+   if(!entry)throw new Error('This activity is no longer available.');
+   entry.occurredOn=day;save();render();toast('Date updated. Your money has not changed.');
+  }catch(error){event.target.querySelector('.error').textContent=error.message;}
+ }
+ if(event.target.id!=='activity-form')return;
+ event.preventDefault();if(!event.target.reportValidity())return;
+ try{
+  const type=$('activity-type').value,amount=cents($('activity-amount').value);
+  if(!Number.isSafeInteger(amount)||amount<=0)throw new Error('Enter an amount greater than zero.');
+  let name=$('activity-name')?.value.trim()||'',item={id:crypto.randomUUID(),type,amount,name};
+  if(type==='debt'){const d=state.debts.find(d=>d.id===$('activity-target')?.value);if(!d)throw new Error('Add or select a debt first.');item.debtId=d.id;item.name=d.name;}
+  else if(type==='recurring'){const b=state.bills.find(b=>b.id===$('activity-target')?.value&&b.active);if(!b)throw new Error('Add or select a bill first.');item.billId=b.id;item.name=b.name;}
+  else if(type==='purchase')item.inEssentials=!!$('activity-covered')?.checked;
+  else if(type==='protect')item.name='Transfer to savings';
+  const plan={items:type==='release'?[]:[item],release:type==='release'?amount:0,label:type==='release'?'Savings moved to spendable':type==='protect'?'Money moved to savings':item.name,source:'manual'};
+  if(['purchase','income'].includes(type)&&!name)throw new Error('Add a short description.');
+  cleanState(recordItems(state,plan.items,plan.release));
+  pending=plan;$('activity-error').textContent='';
+  $('confirm-text').textContent=`Record ${money(amount)} ${type==='income'?'received':type==='release'?'moved from savings':type==='protect'?'moved to savings':'paid for '+item.name}? Only record it if it is not already included in your balances.`;
+  openActivityConfirmation();
+ }catch(error){pending=null;$('activity-error').textContent=error.message;}
+});
 render();

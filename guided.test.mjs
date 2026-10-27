@@ -41,5 +41,58 @@ test('essentials continues to bills, sample numbers remain accessible, total-deb
  await a.route('#goal');assert.equal(a.q('goal-debt'),null);a.fill('goal-type','debt');a.fill('goal-target','100');a.fill('goal-deadline','2099-01-01');await a.submit('goal-form');
  assert.equal(a.run('state.goal.debtId'),'');assert.equal(a.run('state.goal.baseline'),a.run('state.debts.reduce((n,d)=>n+d.balance,0)'));
  const before=a.run('state.cash');a.w.confirm=()=>false;a.w.document.querySelector('[data-action="demo"]').click();assert.equal(a.run('state.cash'),before);
- a.w.confirm=()=>true;a.w.document.querySelector('[data-action="demo"]').click();assert.equal(a.run('state.demo'),true);
+ a.w.confirm=()=>true;a.w.document.querySelector('[data-action="demo"]').click();assert.equal(a.run('state.demo'),true);assert.equal(a.run('state.bills.length'),0);assert.equal(a.run('state.knownFields.length'),3);
+});
+
+test('completed comparisons keep their actual date and record once; saved plans never enter cash flow',async t=>{
+ const a=await setup(saved());t.after(a.close);await a.route('#compare');a.fill('w-amount-0','10');await a.submit('whatif-form');
+ a.w.document.querySelector('[data-action="unified-review"]').click();a.w.document.querySelector('[data-action="save-plan"]').click();
+ assert.equal(a.run('monthFlow(today().slice(0,7)).moneyOut'),0);
+ a.w.document.querySelector('[data-action="record-dialog"]').click();a.fill('activity-date','2020-02-29');
+ a.q('confirm').returnValue='record';a.q('confirm').dispatchEvent(new a.w.Event('close'));await tick();
+ assert.equal(a.run('history.at(-1).occurredOn'),'2020-02-29');assert.equal(a.run("monthFlow('2020-02').moneyOut"),1000);
+ assert.equal(a.run('state.cash'),saved().cash-1000);a.q('confirm').dispatchEvent(new a.w.Event('close'));
+ assert.equal(a.run('state.cash'),saved().cash-1000);assert.equal(a.run('history.length'),2);
+ const f=a.w.document.querySelector('.activity-date-edit');f.querySelector('input').value='2020-03-01';f.dispatchEvent(new a.w.Event('submit',{bubbles:true,cancelable:true}));
+ assert.equal(a.run("monthFlow('2020-02').moneyOut"),0);assert.equal(a.run("monthFlow('2020-03').moneyOut"),1000);assert.equal(a.run('state.cash'),saved().cash-1000);
+ a.w.document.querySelector('[data-action="undo"]').click();assert.equal(a.run("monthFlow('2020-03').moneyOut"),0);assert.equal(a.run('state.cash'),saved().cash);
+});
+
+test('manual income, essentials spending and savings transfers use existing balances without counting transfers as spending',async t=>{
+ const a=await setup(saved());t.after(a.close);
+ async function add(type,amount,name='Test'){
+  await a.route('#history');a.q('activity-type').value=type;a.q('activity-type').dispatchEvent(new a.w.Event('change',{bubbles:true}));
+  a.fill('activity-amount',amount);if(a.q('activity-name'))a.fill('activity-name',name);if(a.q('activity-covered'))a.q('activity-covered').checked=true;
+  await a.submit('activity-form');assert.equal(a.q('activity-error').textContent,'');const before=a.run('state.cash');
+  a.q('confirm').returnValue='record';a.q('confirm').dispatchEvent(new a.w.Event('close'));await tick();return before;
+ }
+ await add('income','100','Paycheck');assert.equal(a.run('state.cash'),saved().cash+10000);
+ await add('purchase','10','Lunch');assert.equal(a.run('state.cash'),saved().cash+9000);assert.equal(a.run('state.essentials'),saved().essentials-1000);
+ await add('protect','20');assert.equal(a.run('state.savings'),saved().savings+2000);
+ await add('release','5');assert.equal(a.run('state.savings'),saved().savings+1500);
+ assert.equal(a.run('state.cash'),saved().cash+7500);
+ assert.equal(a.run('monthFlow(today().slice(0,7)).moneyIn'),10000);assert.equal(a.run('monthFlow(today().slice(0,7)).moneyOut'),1000);
+ assert.equal(a.run('monthFlow(today().slice(0,7)).toSavings'),2000);assert.equal(a.run('monthFlow(today().slice(0,7)).fromSavings'),500);
+ assert.equal(a.run("JSON.parse(localStorage.getItem('can-i-v2')).history.length"),4);
+});
+
+test('manual debt and saved bill payments update targets once; excessive payments and future dates are rejected',async t=>{
+ const s=saved();s.bills=[planner.cleanBill({id:'phone',name:'Phone',amount:1000,nextDue:'2020-01-31',frequency:'monthly'})];s.bills[0].nextDue=engine.today();s.bills[0].anchorDay=Number(engine.today().slice(8));
+ const a=await setup(s);t.after(a.close);await a.route('#history');
+ a.q('activity-type').value='recurring';a.q('activity-type').dispatchEvent(new a.w.Event('change',{bubbles:true}));a.fill('activity-amount','10');await a.submit('activity-form');
+ a.fill('activity-date','2099-01-01');a.q('confirm').returnValue='record';a.q('confirm').dispatchEvent(new a.w.Event('close'));await tick();assert.equal(a.run('state.cash'),s.cash);
+ a.fill('activity-date',engine.today());a.q('confirm').dispatchEvent(new a.w.Event('close'));await tick();assert.equal(a.run('state.cash'),s.cash-1000);assert.equal(a.run('state.bills[0].nextDue'),planner.nextBillDate(s.bills[0]));
+ a.q('activity-type').value='debt';a.q('activity-type').dispatchEvent(new a.w.Event('change',{bubbles:true}));a.fill('activity-amount','10');await a.submit('activity-form');
+ a.q('confirm').returnValue='record';a.q('confirm').dispatchEvent(new a.w.Event('close'));await tick();assert.equal(a.run('state.debts[0].balance'),s.debts[0].balance-1000);
+ a.q('activity-type').value='purchase';a.q('activity-type').dispatchEvent(new a.w.Event('change',{bubbles:true}));a.fill('activity-amount','999999');a.fill('activity-name','Too much');await a.submit('activity-form');assert.ok(a.q('activity-error').textContent);assert.equal(a.run('pending'),null);
+});
+
+test('overview preserves cash after essentials and navigation; old history is preserved without guessed dates or flows',async t=>{
+ const a=await setup(saved());t.after(a.close);
+ assert.equal(a.w.document.querySelectorAll('.dashboard-metric').length,4);assert.match(a.w.document.querySelector('.dashboard-main').textContent,/\$210.00/);
+ assert.equal(a.w.document.querySelectorAll('aside [data-nav]').length,7);
+ assert.equal(a.run('state.cash'),saved().cash);
+ a.run("history=[{id:'old',kind:'payment',label:'Earlier payment',total:1000,description:'Imported',at:new Date().toISOString()}];save()");await a.route('#history');
+ assert.match(a.q('content').textContent,/actual payment date was not saved/);assert.equal(a.run('monthFlow(today().slice(0,7)).older'),1);assert.equal(a.run('monthFlow(today().slice(0,7)).moneyOut'),0);
+ assert.equal(a.run("JSON.parse(localStorage.getItem('can-i-v2')).history[0].id"),'old');
 });
