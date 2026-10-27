@@ -30,3 +30,18 @@ textarea{width:100%;padding:14px;border:1px solid #dbe2d7;border-radius:10px;fon
 #app-introduction li + li {
   margin-top: 12px;
 }
+
+/* Let the desktop menu scroll when the window is short or zoomed in. */
+@media (min-width: 721px) {
+  .shell > aside {
+    height: 100vh;
+    height: 100dvh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    overscroll-behavior-y: contain;
+  }
+
+  .shell > aside > * {
+    flex-shrink: 0;
+  }
+}
