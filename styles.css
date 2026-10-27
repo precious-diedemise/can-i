@@ -27,3 +27,6 @@ textarea{width:100%;padding:14px;border:1px solid #dbe2d7;border-radius:10px;fon
 @media(max-width:1150px){.dashboard-stats{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:720px){.dashboard-grid{grid-template-columns:1fr}.dashboard-metric{padding:18px 14px}.dashboard-metric .label{font-size:9px;letter-spacing:.8px}.dashboard-number{font-size:25px}.dashboard-link{font-size:11px;padding:10px}.activity-totals strong{font-size:20px}.history-entry .result-heading{align-items:start;flex-wrap:wrap}.dashboard-grid .result-heading{align-items:center}.dashboard-grid .text-btn{font-size:12px}}
 @media(max-width:380px){.dashboard-stats{grid-template-columns:1fr}.heading:has(.dashboard-link){flex-direction:column}.activity-totals{grid-template-columns:1fr}}
+#app-introduction li + li {
+  margin-top: 12px;
+}
