@@ -1,6 +1,6 @@
 import {createGoal,goalProgress} from './goals.mjs';
 import {cents,dollars,today,demo,validate,snapshot,simulate,paymentOptions,record,dueBeforeIncome} from './engine.mjs';
-import {simulateItems,itemOptions,recordItems,cleanState,cleanBill,billSchedule,frequencies} from './planner.mjs';
+import {simulateItems,itemOptions,recordItems,cleanState,cleanBill,billSchedule,frequencies,suggestSplits} from './planner.mjs';
 
 const $=id=>document.getElementById(id), esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(dollars(n));
@@ -280,7 +280,7 @@ setupStep=Math.max(0,Math.min(5,setupStep+(action==='setup-next'?1:-1)));localSt
 render();
 
 // One comparison screen: paste at the END of app.mjs.
-let comparisonAction = 'own';
+let comparisonAction = 'suggest';
 let comparisonDraft = null;
 const previousRender = render;
 const previousWhatifView = whatifView;
@@ -288,25 +288,24 @@ const previousWhatifView = whatifView;
 compareTabs = () => '';
 whatifView = function () {
   previousWhatifView();
-  comparisonAction = 'own';
+  comparisonAction = transferredPlan ? 'own' : 'suggest';
+  options = [];
   
-  return heading('Compare choices', 'Try your own plan or ask for a suggested split. You stay in control.') + `
+  return heading('Compare choices', 'See your options, then choose what works for you.') + `
     <form id="whatif-form" class="card">
-      <fieldset style="border:0;padding:0;margin:0 0 20px"><legend>How would you like to start?</legend>
-        <div class="buttons below" role="group" aria-label="Choose how to compare">
-          <button type="button" id="mode-suggest" class="secondary" data-choice-mode="suggest" aria-pressed="false">Suggest a split</button>
-          <button type="button" id="mode-own" class="primary" data-choice-mode="own" aria-pressed="true">My own plan</button>
-        </div>
-      </fieldset>
       <p id="comparison-instruction"></p>
-      <div id="split-budget-wrap" hidden>${field('split-budget', 'How much do you want to divide?', '', 'number', 'Use money you have now.')}</div>
+      <div id="split-budget-wrap">${field('split-budget', 'How much do you want to divide?', '', 'number', 'Use your spendable money. Your existing savings stay protected.')}</div>
+      <fieldset id="own-plan-fields" hidden disabled style="border:0;padding:0;margin:0">
+      <legend>My own plan</legend>
       <div id="w-items" class="below"></div>
       <button class="secondary" type="button" data-action="add-item" data-prefix="w">+ Add another item</button>
-
       <div id="split-priority"></div>
       ${protectedControl('w')}
+      </fieldset>
       <div class="buttons below">
-        <button class="primary" type="submit" id="see-comparison">See comparison</button>
+        <button class="primary" type="submit" id="see-comparison">Show my options</button>
+        <button type="button" id="mode-own" class="text-btn" data-choice-mode="own" aria-pressed="false">My own plan →</button>
+        <button type="button" id="mode-suggest" class="text-btn" data-choice-mode="suggest" aria-pressed="true" hidden>← Back to suggestions</button>
       </div>
       <div id="whatif-error" class="error" role="alert"></div>
     </form><div id="whatif-results" class="below"></div>`;
@@ -337,25 +336,65 @@ document.addEventListener('submit', event => {
   if (event.target.id === 'whatif-form') comparisonAction = $('mode-suggest')?.getAttribute('aria-pressed') === 'true' ? 'suggest' : 'own';
 }, true);
 
+function choiceTradeoff(plan) {
+  const r = plan.result;
+  const debtPaid = Object.values(r.allocations || {}).reduce((sum, n) => sum + n, 0);
+  if (r.cash < 0) return `This needs ${money(-r.cash)} more than the money available in this plan.`;
+  if (r.room < 0) return `This leaves a ${money(-r.room)} gap for entered essentials and payments.`;
+  if (r.received > 0) return `Includes ${money(r.received)} of income you haven’t recorded as received.`;
+  if (r.release > 0) return `Uses ${money(r.release)} from your protected savings.`;
+  if (r.due > 0) {
+    const gain = r.protectedAdded > 0 ? 'Your savings grow, but ' : debtPaid > 0 ? 'Your debt falls, but ' : '';
+    return `${gain}${money(r.due)} in bills and debt payments is still due.`;
+  }
+  if (!plan.items.length) return 'Keeps your money available. Your savings and debt stay the same.';
+  if (r.protectedAdded > 0) return 'More in savings, less available for everyday spending.';
+  if (debtPaid > 0) return `Reduces debt by ${money(debtPaid)}; savings stay at ${money(r.savings)}.`;
+  return 'Covers this spending, leaving less money for other choices.';
+}
+
+function choiceAllocation(plan, suggest) {
+  const items = plan.items.filter(x => x.amount > 0);
+  const rows = items.map(x => `<li><span>${esc(x.name || x.type)}${x.type === 'income' ? ' (possible income)' : ''}</span><b>${money(x.amount)}</b></li>`);
+  if (suggest && plan.kept > 0) rows.push(`<li><span>Keep available</span><b>${money(plan.kept)}</b></li>`);
+  const visible = rows.slice(0, 4);
+  const extra = rows.length > 4 ? `<li class="muted"><span>+ ${rows.length - 4} more in details</span></li>` : '';
+  return `<ul class="choice-allocation">${visible.join('')}${extra || (!rows.length ? '<li>No changes</li>' : '')}</ul>`;
+}
+
+function choiceDetails(plan) {
+  const r = plan.result;
+  return `<details class="choice-details"><summary>See details</summary>
+    ${plan.description ? `<p>${esc(plan.description)}</p>` : ''}
+    <p>${itemsHTML(plan.items)}</p>
+    ${r.release ? stat('Taken from protected savings', r.release) : ''}
+    ${r.received ? stat('Possible income included', r.received) : ''}
+    ${stat('Savings after this option', r.savings)}
+    ${stat('Total debt after this option', r.balances.reduce((sum, d) => sum + d.balance, 0))}
+    ${stat('Essentials still to cover', r.essentials)}
+    ${stat('Bills and debt payments still due', r.due)}
+    <p>Payments through ${date(r.horizon)}${r.assumedHorizon ? ' (next 30 days)' : ''}. If you also cover these essentials and payments, you would have <b>${money(r.room)}</b> left. They have not been deducted from the balance above.</p>
+    ${goalSummary(r)}
+  </details>`;
+}
+
 runScenario = function () {
   try {
-    syncItems('w');
-    comparisonDraft = structuredClone(whatItems);
-    const items = whatItems.filter(x => x.amount > 0);
-    if (!items.length) throw new Error('Add at least one item and an amount.');
-    const released = release('w');
-    const hasIncome = items.some(x => x.type === 'income');
-    const own = {title: 'Your plan', items, result: simulateItems(state, items, released)};
+    const suggest = comparisonAction === 'suggest';
+    let hasIncome = false;
     const baseline = {title: 'Keep things as they are', items: [], release: 0, result: simulateItems(state, [])};
-    const priority = $('split-priority-choice').value;
     let plans;
-    if (comparisonAction === 'suggest') {
-      if (hasIncome) throw new Error('Extra income is a what-if amount. Choose My own plan to test it, or remove it before asking to split money you have now.');
-      const budget = cents($('split-budget').value);
-      if (budget <= 0) throw new Error('Enter how much you would like to split.');
-      plans = itemOptions(state, items, budget, released, priority);
-      if (!plans.length) throw new Error('No money can be split across these items. Check your amounts.');
+    if (suggest) {
+      plans = suggestSplits(state, cents($('split-budget').value));
     } else {
+      syncItems('w');
+      comparisonDraft = structuredClone(whatItems);
+      const items = whatItems.filter(x => x.amount > 0);
+      if (!items.length) throw new Error('Add at least one item and an amount.');
+      const released = release('w');
+      hasIncome = items.some(x => x.type === 'income');
+      const own = {title: 'Your plan', items, result: simulateItems(state, items, released)};
+      const priority = $('split-priority-choice').value;
       plans = [own];
       if (!hasIncome && own.result.total > 0 && own.result.cash >= 0) {
         const limits = items.map(x => ({...x, amount:
@@ -371,15 +410,24 @@ runScenario = function () {
     pending = null;
     $('whatif-error').textContent = '';
     const compared = [baseline, ...plans];
-    $('whatif-results').innerHTML = `<section class="card"><h2>Here’s what would change</h2>
+    const comparisonTable = `<details class="card below choice-comparison"><summary>Compare all numbers</summary><h2>Here’s what would change</h2>
       <p>Just a preview. Nothing has been paid or moved.${hasIncome ? ' Extra income is included only as a possibility, not money you already have.' : ''}</p>
       ${itemResultsTable(compared)}
-      <p>${comparisonAction === 'suggest' ? `Each suggested split uses ${money(plans[0].result.total)}. Any amount that cannot be allocated stays available.` : 'Your amounts are used exactly as entered. Alternatives may put more toward a debt or savings, but never increase a purchase above the amount you entered.'}</p>
-      </section>` + plans.map((p, i) => `<section class="card below"><h3>${esc(p.title)}</h3>
-        <p>${itemsHTML(p.items)}</p>${stat('Spendable money after', p.result.cash)}
-        ${goalSummary(p.result)}${warningHTML(p.result)}${commitmentForecast(p.result)}
-        <p>${p.result.room < 0 ? `This leaves a ${money(-p.result.room)} gap for entered essentials and payments. Consider changing the plan.` : 'This leaves enough for the essentials and payments you entered in the planning window.'}</p>
-        <button type="button" class="secondary" data-action="unified-review" data-index="${i}">Review this plan</button></section>`).join('') + '<div id="plan-review" class="below"></div>';
+      <p>${suggest ? `Each option starts with the same ${money(plans[0].budget)}. Money kept available stays in your spendable balance.` : 'Your amounts are used exactly as entered. Alternatives may put more toward a debt or savings, but never increase a purchase above the amount you entered.'}</p>
+      </details>`;
+    const cards = `<div class="choice-cards">` + plans.map((p, i) => `<section class="card choice-card">
+        <span class="pill">OPTION ${i+1}</span><h3>${esc(p.title)}</h3>
+        <div class="choice-allocation-block"><div class="label">Where the money goes</div>${choiceAllocation(p, suggest)}</div>
+        <div class="choice-balance"><span>Spendable money left</span><strong class="${p.result.cash < 0 ? 'negative' : ''}">${money(p.result.cash)}</strong><small>Before remaining bills and essentials.</small></div>
+        <p class="choice-tradeoff ${p.result.room < 0 ? 'warn' : ''}"><b>Main trade-off</b>${esc(choiceTradeoff(p))}</p>
+        ${choiceDetails(p)}
+        <div class="buttons choice-actions"><button type="button" class="secondary" data-action="unified-review" data-index="${i}">Review this plan</button>
+        ${suggest&&p.items.length?`<button type="button" class="text-btn" data-action="adjust-split" data-index="${i}">Adjust this option →</button>`:''}</div></section>`).join('') + '</div>';
+    const resultHeading = suggest
+      ? `<div class="section-label"><h2>${plans.length} ways to use ${money(plans[0].budget)}</h2><span class="label">PREVIEW ONLY</span></div><p>Based on your saved bills, debts, and goal. Nothing has been paid or moved.</p>`
+      : `<div class="section-label"><h2>Your plan${plans.length > 1 ? ' and other options' : ''}</h2><span class="label">PREVIEW ONLY</span></div><p>Nothing has been paid or moved.</p>`;
+    $('whatif-results').innerHTML = resultHeading + warningHTML(baseline.result) + cards + comparisonTable;
+    $('whatif-results').insertAdjacentHTML('beforeend','<div id="plan-review" class="below"></div>');
   } catch (error) {
     pending = null; options = [];
     $('whatif-error').textContent = error.message;
@@ -392,11 +440,11 @@ document.addEventListener('click', event => {
   if (!button) return;
   const plan = options[Number(button.dataset.index)];
   if (!plan) return;
-  pending = {label: plan.title, items: structuredClone(plan.items), release: release('w')};
+  pending = {label: plan.title, items: structuredClone(plan.items), release: plan.result.release||0};
   $('plan-review').innerHTML = `<section class="card"><h2>${esc(plan.title)}</h2><p>${itemsHTML(plan.items)}</p>
     <p>Save this as a plan, or record it only after you have actually done it.</p>
     <button type="button" class="secondary" data-action="save-plan">Save plan</button>
-    ${plan.result.cash >= 0 ? '<button type="button" class="primary" data-action="record-dialog">I completed these actions</button>' : ''}</section>`;
+    ${plan.result.cash >= 0&&plan.result.total>0 ? '<button type="button" class="primary" data-action="record-dialog">I completed these actions</button>' : !plan.items.length?'<p>This option keeps your money where it is. There are no actions to record.</p>':''}</section>`;
   $('plan-review').scrollIntoView({behavior: 'smooth', block: 'start'});
 });
 document.addEventListener('click', event => {
@@ -426,12 +474,15 @@ function updateComparisonLabels() {
   const suggest = comparisonAction === 'suggest';
   for (const mode of ['own', 'suggest']) {
     const button = $('mode-' + mode), active = mode === comparisonAction;
-    button.className = active ? 'primary' : 'secondary';
     button.setAttribute('aria-pressed', String(active));
+    button.hidden = active;
   }
   $('comparison-instruction').textContent = suggest
-    ? 'Choose what to split your money between. Add a maximum amount for each item below.'
+    ? 'Enter one amount. We’ll use your saved bills, debts, and goal to suggest options.'
     : 'What would you like to do with your money? Add each payment, purchase, or savings amount below.';
+  $('own-plan-fields').hidden = suggest;
+  $('own-plan-fields').disabled = suggest;
+  $('see-comparison').textContent = suggest ? 'Show my options' : 'Compare my plan';
   $('split-budget-wrap').hidden = !suggest;
   $('split-budget').disabled = !suggest;
   $('split-budget').required = suggest;
@@ -439,22 +490,32 @@ function updateComparisonLabels() {
     const input = $('w-amount-' + i);
     if (!input) continue;
     const label = document.querySelector('label[for="w-amount-' + i + '"]');
-    label.textContent = suggest ? 'Maximum for this item' : 'Your amount';
+    label.textContent = 'Your amount';
     const hint = input.parentElement.querySelector('small');
-    hint.textContent = suggest ? 'The most you want to put toward this item.'
-      : whatItems[i].type === 'income' ? 'Extra money you want to include in this what-if.'
+    hint.textContent = whatItems[i].type === 'income' ? 'Extra money you want to include in this what-if.'
       : 'How much you want to pay, spend, or save.';
   }
 }
 document.addEventListener('click', event => {
   const button = event.target.closest('[data-choice-mode]');
   if (!button || !$('whatif-form')) return;
-  syncItems('w');
   comparisonAction = button.dataset.choiceMode;
   pending = null; options = [];
   $('whatif-results').innerHTML = '';
   $('whatif-error').textContent = '';
   updateComparisonLabels();
+});
+document.addEventListener('click', event => {
+  const button=event.target.closest('[data-action="adjust-split"]');
+  if(!button)return;
+  const plan=options[Number(button.dataset.index)];
+  if(!plan)return;
+  whatItems=structuredClone(plan.items);
+  comparisonAction='own';pending=null;options=[];
+  $('w-use').checked=false;$('w-release').value='0';$('w-releasebox').classList.add('hidden');
+  $('whatif-error').textContent='';
+  renderItems('w');
+  $('whatif-form').scrollIntoView({behavior:'smooth',block:'start'});
 });
 updateComparisonLabels();
 
@@ -633,3 +694,4 @@ document.addEventListener('submit',event=>{
  }catch(error){pending=null;$('activity-error').textContent=error.message;}
 });
 render();
+

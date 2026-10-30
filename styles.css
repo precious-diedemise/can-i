@@ -45,3 +45,30 @@ textarea{width:100%;padding:14px;border:1px solid #dbe2d7;border-radius:10px;fon
     flex-shrink: 0;
   }
 }
+
+/* Compact comparison cards, with the full breakdown available on demand. */
+.choice-cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,270px),1fr));gap:18px;margin-top:22px;align-items:start}
+.choice-card{display:flex;flex-direction:column;padding:22px;min-width:0}
+.choice-card>.pill{align-self:flex-start;margin-bottom:14px}
+.choice-card>h3{font-size:17px;line-height:1.45;min-height:50px;margin-bottom:20px}
+.choice-allocation-block{min-height:144px}
+.choice-allocation{list-style:none;padding:0;margin:10px 0 20px}
+.choice-allocation li{display:flex;justify-content:space-between;gap:12px;padding:7px 0;font-size:13px;line-height:1.5}
+.choice-allocation li span{overflow-wrap:anywhere;min-width:0}
+.choice-allocation b{font-weight:600;white-space:nowrap}
+.choice-balance{padding:18px 0;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.choice-balance>span{font-size:12px;font-weight:600}
+.choice-balance>strong{display:block;font:600 32px Manrope,system-ui,sans-serif;letter-spacing:-1px;margin:8px 0}
+.choice-balance>small{font-size:11px;color:var(--muted);line-height:1.5}
+.choice-tradeoff{font-size:13px;line-height:1.6;margin:18px 0;min-height:94px}
+.choice-tradeoff>b{display:block;margin-bottom:6px;font-size:11px;text-transform:uppercase;letter-spacing:.7px}
+.choice-details{font-size:12px;line-height:1.6;border-top:1px solid var(--line);padding-top:14px}
+.choice-details>summary,.choice-comparison>summary{cursor:pointer;font-size:13px;font-weight:700;color:var(--green)}
+.choice-details .stat-row{font-size:12px}
+.choice-details p{overflow-wrap:anywhere}
+.choice-actions{margin-top:18px;gap:6px}
+.choice-actions .secondary{width:100%}
+.choice-actions .text-btn{font-size:12px}
+.choice-comparison[open]>summary{margin-bottom:22px}
+@media(max-width:720px){.choice-cards{grid-template-columns:1fr}.choice-card>h3{min-height:0;margin-bottom:18px}.choice-allocation-block{min-height:0}.choice-tradeoff{min-height:0}.choice-card{padding:20px}.choice-actions .secondary{width:auto}.choice-actions{gap:14px}}
+
