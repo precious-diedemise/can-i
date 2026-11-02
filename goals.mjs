@@ -20,3 +20,16 @@ export function goalProgress(state, result = null, asof = state.asof) {
   return {net, remaining, percent: Math.max(0, Math.min(100, net / g.target * 100)), days, weekly: days > 0 ? Math.ceil(remaining * 7 / days) : null};
 }
 
+// Editing a target/date retains the original starting point. A reset is explicit.
+export function updateGoal(state, data, asof, restart = false) {
+  const previous = state.goal;
+  if (!previous || restart) return createGoal(state, data, asof);
+  if (data.type !== previous.type) throw new Error('Choose Start a new goal to change the goal type.');
+  // Validate against the original debt amount, so payments already made still count.
+  const validationState = previous.type === 'debt'
+    ? {...state, debts: [{balance: previous.baseline}]} : state;
+  const next = createGoal(validationState, data, asof);
+  return {...next, baseline: previous.baseline, debtId: previous.debtId || ''};
+}
+
+

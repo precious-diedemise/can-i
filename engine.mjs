@@ -15,7 +15,7 @@ export function dueBeforeIncome(s,d) { return d.minimum>0 && !!d.due && (!s.payd
 export function dueReserve(s,allocations={}) { return s.debts.reduce((t,d)=>t+(dueBeforeIncome(s,d)?Math.max(0,d.minimum-(allocations[d.id]||0)):0),0); }
 export function snapshot(s) { const due=dueReserve(s); return {cash:s.cash,savings:s.savings,essentials:s.essentials,due,afterEssentials:s.cash-s.essentials,room:s.cash-s.essentials-due}; }
 export function simulate(s,allocations={},release=0) {
-  if(!Number.isSafeInteger(release)||release<0||release>s.savings) throw new Error('The protected amount must be between zero and your savings balance.');
+  if(!Number.isSafeInteger(release)||release<0||release>s.savings) throw new Error('The savings amount must be between zero and your savings balance.');
   let total=0;
   for(const [id,amount] of Object.entries(allocations)){const d=s.debts.find(x=>x.id===id);if(!d||!Number.isSafeInteger(amount)||amount<0||amount>d.balance) throw new Error('Payment must be within the selected debt balance.');total+=amount;}
   const cash=s.cash+release-total;
@@ -64,5 +64,6 @@ export function record(s,allocations,release=0) {
   if(r.total<=0)throw new Error('There is no payment to record.');
   return {...s,cash:r.cash,savings:r.savings,debts:s.debts.map(d=>({...d,balance:d.balance-(allocations[d.id]||0),minimum:Math.max(0,d.minimum-(allocations[d.id]||0))}))};
 }
+
 
 

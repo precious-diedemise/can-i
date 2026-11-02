@@ -70,5 +70,23 @@ textarea{width:100%;padding:14px;border:1px solid #dbe2d7;border-radius:10px;fon
 .choice-actions .secondary{width:100%}
 .choice-actions .text-btn{font-size:12px}
 .choice-comparison[open]>summary{margin-bottom:22px}
+.negative,.money-out{color:#b42318}
+.money-in{color:#28613d}
+.money-transfer{color:#58637a}
+.flow-out{background:#c94343}
+.dashboard-shortfall{background:#fff1f0;border-color:#efc7c3;color:var(--ink)}
+.dashboard-shortfall .label,.dashboard-shortfall small,.dashboard-shortfall p{color:#725653}
+.funding-controls{padding:16px;background:#f6f8f3;border-radius:12px;margin-bottom:20px}
+.funding-controls .form-grid{margin-top:16px}
+.funding-controls .disclosure{margin-bottom:0}
+.choice-reason{font-size:12px;line-height:1.55;color:var(--muted)}
+.funding-note{margin-bottom:20px}
+.funding-note details{margin-top:12px}
+#saved-plans .history-entry:last-child{border-bottom:0;padding-bottom:0}
+#saved-plans h3{margin-top:14px}
+#plan-review .buttons{margin-top:18px}
+#plan-review .field{max-width:520px}
+input:disabled,select:disabled{background:#f0f2ed;color:#66736c}
 @media(max-width:720px){.choice-cards{grid-template-columns:1fr}.choice-card>h3{min-height:0;margin-bottom:18px}.choice-allocation-block{min-height:0}.choice-tradeoff{min-height:0}.choice-card{padding:20px}.choice-actions .secondary{width:auto}.choice-actions{gap:14px}}
+
 

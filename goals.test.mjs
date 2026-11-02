@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGoal,goalProgress} from './goals.mjs';
+import {createGoal,updateGoal,goalProgress} from './goals.mjs';
 import {simulateItems,recordItems,itemOptions} from './multi.mjs';
 const fixture=()=>({version:2,cash:32000,savings:40000,essentials:11000,income:52000,payday:'2026-10-21',asof:'2026-10-14',debts:[{id:'card',name:'Card',balance:90000,minimum:3500,apr:24,due:'2026-10-18'}]});
 const goal=(s,type='savings')=>createGoal(s,{type,target:10000,deadline:'2026-10-28',debtId:'card'},s.asof);
@@ -20,3 +20,18 @@ test('total debt goal includes every debt, previews and new borrowing',()=>{
  assert.equal(goalProgress(s,r).net,5000);assert.equal(goalProgress(s).net,0);
  s.debts.push({...s.debts[0],id:'new',balance:10000});assert.equal(goalProgress(s).net,-10000);
 });
+
+test('editing a goal retains progress; only starting a new goal changes its baseline',()=>{
+ const s=fixture();s.goal=goal(s);s.savings+=4000;
+ s.goal=updateGoal(s,{type:'savings',target:20000,deadline:'2026-12-31'},s.asof);
+ assert.equal(goalProgress(s).net,4000);assert.equal(s.goal.baseline,40000);
+ assert.throws(()=>updateGoal(s,{type:'debt',target:20000,deadline:'2026-12-31'},s.asof));
+ s.goal=updateGoal(s,{type:'savings',target:20000,deadline:'2026-12-31'},s.asof,true);
+ assert.equal(goalProgress(s).net,0);assert.equal(s.goal.baseline,44000);
+});
+test('editing an almost completed debt goal validates against its original debt balance',()=>{
+ const s=fixture();s.goal=goal(s,'debt');s.debts[0].balance=1000;
+ s.goal=updateGoal(s,{type:'debt',target:90000,deadline:'2026-12-31'},s.asof);
+ assert.equal(goalProgress(s).net,89000);assert.equal(goalProgress(s).remaining,1000);
+});
+
