@@ -1,12 +1,44 @@
 import {createGoal,updateGoal,goalProgress} from './goals.mjs';
-import {cents,dollars,today,demo,validate,snapshot,simulate,paymentOptions,record,dueBeforeIncome} from './engine.mjs';
+import {cents,dollars,today,dateAfter,demo,validate,snapshot,simulate,paymentOptions,record,dueBeforeIncome} from './engine.mjs';
 import {simulateItems,itemOptions,recordItems,cleanState,cleanBill,billSchedule,frequencies,suggestSplits,comparisonState,expectedFunding,paymentsBeforeIncome} from './planner.mjs';
 
 const $=id=>document.getElementById(id), esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD'}).format(dollars(n));
 const date=x=>x?new Date(x+'T12:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric'}):'Not set';
 const value=n=>dollars(n).toFixed(2);
-const KEY='can-i-v2';let state=demo(),history=[],undo=null,options=[],pending=null,storageProblem=false;
+const SAMPLE_MODE=new URLSearchParams(location.search).get('example')==='1';
+const PERSONAL_KEY='can-i-v2';
+const KEY=SAMPLE_MODE?PERSONAL_KEY+'-example':PERSONAL_KEY;
+const PERSONAL_STEP_KEY='can-i-setup-step';
+const STEP_KEY=SAMPLE_MODE?PERSONAL_STEP_KEY+'-example':PERSONAL_STEP_KEY;
+let state=SAMPLE_MODE?starterSample():demo(),history=[],undo=null,options=[],pending=null,storageProblem=false;
+function starterSample(){
+ const s={...demo(),cash:10000,savings:5000,essentials:2000,income:0,payday:dateAfter(14),priority:'',setupComplete:true,knownFields:['cash','savings','essentials'],
+  debts:[{id:'sample-card',name:'Credit card',type:'Credit card',balance:45000,minimum:3500,apr:24,due:dateAfter(5)},{id:'sample-tuition',name:'Tuition',type:'School / tuition',balance:30000,minimum:0,apr:0,due:dateAfter(60)}],
+  bills:[cleanBill({id:'sample-phone',name:'Phone bill',amount:2500,nextDue:dateAfter(2),frequency:'monthly',autoRenew:true})]};
+ s.goal=createGoal(s,{type:'savings',target:6000,deadline:dateAfter(60)},s.asof);
+ return cleanState(s);
+}
+function modeURL(example){
+ const url=new URL(location.href);
+ if(example)url.searchParams.set('example','1');else url.searchParams.delete('example');
+ url.hash=example?'whatif':'money';return url.pathname+url.search+url.hash;
+}
+function readSetupStep(){try{return Number(localStorage.getItem(STEP_KEY)||0);}catch{return 0;}}
+function storeSetupStep(step){try{if(step===null)localStorage.removeItem(STEP_KEY);else localStorage.setItem(STEP_KEY,String(step));}catch{/* The current tab can still finish setup. */}}
+const MONEY_DRAFT_KEY=PERSONAL_KEY+'-first-step-draft';
+function rememberFirstStep(){
+ if(SAMPLE_MODE||state.setupComplete||!$('guided-money'))return;
+ try{sessionStorage.setItem(MONEY_DRAFT_KEY,JSON.stringify({base:[state.cash,state.savings],cash:$('cash').value,savings:$('savings').value}));}catch{}
+}
+function clearFirstStep(){if(!SAMPLE_MODE)try{sessionStorage.removeItem(MONEY_DRAFT_KEY);}catch{}}
+function firstMoneyValue(key){
+ const fallback=state.knownFields.includes(key)?value(state[key]):'';
+ if(SAMPLE_MODE||state.setupComplete)return fallback;
+ try{const d=JSON.parse(sessionStorage.getItem(MONEY_DRAFT_KEY));if(d?.base?.[0]===state.cash&&d?.base?.[1]===state.savings&&typeof d[key]==='string'&&d[key].length<32)return d[key];}catch{}
+ return fallback;
+}
+document.addEventListener('click',e=>{if(e.target.closest('a[data-example-link]'))rememberFirstStep();});
 let editingPlanId=null,comparisonFunding=null,newGoalMode=false;
 try{const raw=localStorage.getItem(KEY);if(raw){const saved=JSON.parse(raw);if(saved.state.version!==2)throw new Error();state=validate(saved.state);history=Array.isArray(saved.history)?saved.history:[];undo=saved.undo??null;state.asof=today();}}catch{storageProblem=true;}
 const toast=msg=>{ $('toast').textContent=msg;$('toast').style.display='block';clearTimeout(toast.timer);toast.timer=setTimeout(()=>$('toast').style.display='none',4000);};
@@ -73,7 +105,7 @@ if(action==='save-plan'&&pending)savePendingPlan();
 if(action==='record-dialog'&&pending){pending.label=$('saved-plan-name')?.value.trim()||pending.label;if(!canCompleteFunding(pending.funding)){toast('Record receiving the expected income first.');return;}const r=simulateItems(state,pending.items,pending.release);$('confirm-text').textContent=`Record these completed actions: ${pending.items.filter(x=>x.amount>0).map(x=>money(x.amount)+' → '+x.name).join('; ')}${pending.release?'; include '+money(pending.release)+' from savings':''}?`;openActivityConfirmation();}
 if(action==='undo'&&undo){const before={state,history:structuredClone(history),undo};state=undo.state;const index=history.findIndex(h=>h.id===undo.entryId);if(index>=0){if(undo.planBefore)history[index]=undo.planBefore;else history[index].kind='undo';}undo=null;pending=null;if(!save()){state=before.state;history=before.history;undo=before.undo;return;}render();toast('Last update undone. Your previous balances are restored.');}
 if(action==='clear'){if(!window.confirm('Clear saved numbers and activity from this browser?'))return;state={version:2,demo:false,cash:0,savings:0,essentials:0,income:0,payday:'',asof:today(),priority:'',debts:[]};history=[];undo=null;pending=null;save();location.hash='money';render();toast('Start with your own numbers.');}
-if(action==='demo'){if(!window.confirm('Replace current numbers and activity with the fictional example?'))return;state=demo();history=[];undo=null;pending=null;save();location.hash='home';render();toast('Fictional example loaded.');}
+if(action==='demo'){location.assign(modeURL(true));}
 });
 $('confirm').addEventListener('close',()=>{
  const answer=$('confirm').returnValue;
@@ -153,13 +185,15 @@ saveMoney = function () {
 
 const originalBanner = banner;
 banner = function () {
+  if(SAMPLE_MODE){
+    $('notice').innerHTML='<div class="banner"><span>Sample numbers</span><a href="'+esc(modeURL(false))+'">Use my numbers →</a></div>';
+    return;
+  }
   if (state.setupComplete) {
     originalBanner();
     return;
   }
-  $('notice').innerHTML =
-    '<div class="banner"><span>Start with your own numbers, or explore an example.</span>' +
-    '<button class="text-btn" data-action="demo">Try sample numbers →</button></div>';
+  $('notice').replaceChildren();
 };
 
 render = function () {
@@ -204,24 +238,21 @@ document.addEventListener('click', function (event) {
   event.preventDefault();
   event.stopImmediatePropagation();
 
-  if (state.setupComplete && !window.confirm(
-    action === 'demo'
-      ? 'Replace your current numbers and activity with sample numbers?'
-      : 'Clear your saved numbers and activity?'
-  )) return;
+  if(action==='demo'){rememberFirstStep();location.assign(modeURL(true));return;}
+  if(SAMPLE_MODE){location.assign(modeURL(false));return;}
+  if (state.setupComplete && !window.confirm('Clear your saved numbers and activity?')) return;
 
-  state = action === 'demo'
-    ? { ...demo(), setupComplete: true, bills: [], knownFields: ['cash','savings','essentials'] }
-    : blankStartState();
+  clearFirstStep();
+  state = blankStartState();
   conversation.reset();
-  setupStep=0;localStorage.removeItem('can-i-setup-step');
+  setupStep=0;storeSetupStep(null);
   history = [];
   undo = null;
   pending = null;
   transferredPlan = null;
   options = [];
   save();
-  location.hash = action === 'demo' ? 'home' : 'money';
+  location.hash = 'money';
   render();
 }, true);
 
@@ -249,25 +280,29 @@ document.addEventListener('click',e=>{const b=e.target.closest('[data-action]');
 
 
 // Guided, local-only experience. No AI endpoint is called.
-let setupStep=Number(localStorage.getItem('can-i-setup-step')||0);
+let setupStep=readSetupStep();
 if(!Number.isInteger(setupStep)||setupStep<0||setupStep>5)setupStep=0;
 let setupActive=!state.setupComplete;
 const steps=['Your money','Everyday needs','Bills','Debts','Goal','Review'];
 function stepButtons(){return `<div class="buttons below"><button class="secondary" data-action="setup-back" ${setupStep===0?'disabled':''}>Back</button><button class="primary" data-action="setup-next">${setupStep===5?'Finish & compare choices':setupStep===4&&!state.goal?'Skip goal & review':'Save & next →'}</button></div><p class="disclosure">Saved in this browser. You can change these details later.</p>`;}
-function basicMoney(){return heading('Your money','Enter two separate amounts. Count each dollar only once.')+`<form id="guided-money" class="card"><div class="form-grid">${field('cash','How much money do you have right now?',state.knownFields.includes('cash')?value(state.cash):'','number','Include bank balances and cash. Leave out savings, credit, and money you have not received.','required')}${field('savings','Savings',state.knownFields.includes('savings')?value(state.savings):'','number','Money you have put aside. Enter 0 if you have none.','required')}</div><div id="guided-error" class="error" role="alert"></div>${setupActive?'':'<button class="primary below">Save & continue →</button>'}</form>`;}
+function basicMoney(){return heading('Your money','Enter two separate amounts. Count each dollar only once.')+`<form id="guided-money" class="card"><div class="form-grid">${field('cash','How much money do you have right now?',firstMoneyValue('cash'),'number','Include bank balances and cash. Leave out savings, credit, and money you have not received.','required')}${field('savings','Savings',firstMoneyValue('savings'),'number','Money you have put aside. Enter 0 if you have none.','required')}</div><div id="guided-error" class="error" role="alert"></div>${setupActive?'':'<button class="primary below">Save & continue →</button>'}</form>`;}
 function essentialsView(){return heading('Everyday needs','What does your money need to cover?')+`<form id="guided-essentials" class="card">${field('essentials','Everyday needs still to cover',state.knownFields.includes('essentials')?value(state.essentials):'','number','Estimate food, transport, and other daily needs until your next income, or for the next 30 days. Leave out bills and debts you list separately. Enter 0 if none.','required')}<h2 class="below">Money coming in <small class="muted">Optional</small></h2><div class="form-grid">${field('income','How much do you expect to receive?',state.income?value(state.income):'','number','For example: salary, allowance, or a refund.')}${field('payday','When do you expect it?',state.payday,'date','Without a date, current-money comparisons use the next 30 days.')}</div><p class="disclosure">Expected money is used only in future comparisons. Record receiving it before it changes your balance.</p><div id="guided-error" class="error" role="alert"></div>${setupActive?'':'<button class="primary below">Save & continue to bills →</button>'}</form>`;}
 function debtsView(){draftDebts=structuredClone(state.debts);return heading('Debts','Add only what you owe. Unknown APRs and due dates can be left blank.')+`<form id="guided-debts" class="card"><div id="debt-fields"></div><button type="button" class="secondary" data-action="add-debt">+ Add debt</button><p class="disclosure">Payment due is the remaining minimum or agreed installment, not the full balance. Missing due dates are treated cautiously in comparisons.</p><div id="guided-error" class="error" role="alert"></div>${setupActive?'':'<button class="primary below">Save debts</button>'}</form>`;}
 const oldBillsView=billsView;
 billsView=function(){return `<nav class="mode-tabs" aria-label="Bills and debts"><a href="#bills" aria-current="page">Bills & subscriptions</a><a href="#debts">Debts</a></nav>`+oldBillsView();};
 function reviewSetup(){return heading('Ready to explore?','Review your numbers. Nothing has been paid or transferred.')+`<section class="card">${stat('Money you have now',state.cash)}${stat('Savings',state.savings)}${stat('Everyday needs still to cover',state.essentials)}<p>${state.bills.length} bills · ${state.debts.length} debts</p><p>${state.goal?esc(goalName()):'No goal selected. You can add one later.'}</p><p>Use Back to make changes, or finish to compare choices.</p></section>`;}
 function playView(){return heading('Can I Play?','One semester. A starting balance. Your decisions.')+`<section class="card"><span class="pill">COMING SOON</span><h2>Make your money last through the semester.</h2><p>Start with fictional money, navigate realistic student-life choices, and handle unexpected expenses. See how your choices affect your money throughout the semester.</p><p>Practice, explore the consequences, and try a different path. No real money involved.</p><a class="secondary" href="#survey">Tell us what you’d like to play →</a></section>`;}
-function saveGuided(){const form=$('guided-money')||$('guided-essentials')||$('guided-debts');if(!form)return true;if(!form.reportValidity())return false;try{const next=structuredClone(state);if(form.id==='guided-money'){next.cash=cents($('cash').value);next.savings=cents($('savings').value);next.knownFields=[...new Set([...next.knownFields,'cash','savings'])];}if(form.id==='guided-essentials'){next.essentials=cents($('essentials').value);next.payday=$('payday').value;next.income=cents($('income').value);next.knownFields=[...new Set([...next.knownFields,'essentials'])];}if(form.id==='guided-debts'){syncDraft();next.debts=structuredClone(draftDebts);}cleanState(next);state=next;state.demo=false;undo=null;pending=null;save();return true;}catch(e){$('guided-error').textContent=e.message;return false;}}
+function saveGuided(){const form=$('guided-money')||$('guided-essentials')||$('guided-debts');if(!form)return true;if(!form.reportValidity())return false;try{const next=structuredClone(state);if(form.id==='guided-money'){next.cash=cents($('cash').value);next.savings=cents($('savings').value);next.knownFields=[...new Set([...next.knownFields,'cash','savings'])];}if(form.id==='guided-essentials'){next.essentials=cents($('essentials').value);next.payday=$('payday').value;next.income=cents($('income').value);next.knownFields=[...new Set([...next.knownFields,'essentials'])];}if(form.id==='guided-debts'){syncDraft();next.debts=structuredClone(draftDebts);}cleanState(next);state=next;state.demo=false;undo=null;pending=null;if(save()&&form.id==='guided-money')clearFirstStep();return true;}catch(e){$('guided-error').textContent=e.message;return false;}}
 function setupView(){const v=[basicMoney,essentialsView,()=>oldBillsView(),debtsView,goalView,reviewSetup];return `<section class="setup-progress" aria-label="Setup progress"><p>Step ${setupStep+1} of 6 · ${steps[setupStep]}</p><progress max="6" value="${setupStep+1}"></progress></section>`+v[setupStep]()+stepButtons();}
 compareTabs=function(page){return `<section class="compare-intro"><h2>Compare choices</h2><p>Explore a suggestion or test your own plan. Neither mode moves money.</p><nav class="mode-tabs" aria-label="Comparison mode"><a href="#pay" ${page==='pay'?'aria-current="page"':''}>Help me decide</a><a href="#whatif" ${page==='whatif'?'aria-current="page"':''}>Test my plan</a></nav>${goalSummary()}</section>`;};
 render=function(){let page=location.hash.slice(1)||'home';if(page==='chat'||page==='compare')page='pay';if(!state.setupComplete&&!['survey','play'].includes(page)){page='setup';setupActive=true;}else if(page!=='setup')setupActive=false;
 const navPage=['pay','whatif'].includes(page)?'compare':['debts','bills'].includes(page)?'bills':['setup','essentials','goal'].includes(page)?'money':page;
 document.querySelectorAll('[data-nav]').forEach(a=>{a.classList.toggle('active',a.dataset.nav===navPage);if(a.dataset.nav===navPage)a.setAttribute('aria-current','page');else a.removeAttribute('aria-current');});
-$('app-introduction').hidden=!(page==='home'||page==='setup'&&setupStep===0);banner();
+const showStart=page==='setup'&&setupStep===0&&!['#setup','#money'].includes(location.hash);
+$('app-introduction').hidden=!(page==='home'||showStart);
+$('start-actions').hidden=!showStart;
+if(showStart)$('start-actions').querySelector('[data-example-link]').setAttribute('href',modeURL(true));
+banner();
 const views={home:homeView,money:basicMoney,essentials:essentialsView,bills:billsView,debts:debtsView,goal:goalView,setup:setupView,pay:payView,whatif:whatifView,history:historyView,survey:surveyView,play:playView};
 $('content').innerHTML=(['pay','whatif'].includes(page)?compareTabs(page):'')+(views[page]||homeView)();
 if(page==='money')$('content').insertAdjacentHTML('beforeend','<p><a href="#essentials">Edit everyday needs & expected income →</a></p>'+goalCard());
@@ -286,8 +321,17 @@ document.addEventListener('submit',e=>{if(e.target.id.startsWith('guided-')){e.p
 document.addEventListener('click',e=>{const action=e.target.closest('[data-action]')?.dataset.action;if(!['setup-back','setup-next'].includes(action))return;if(!saveGuided())return;
 if(action==='setup-next'&&setupStep===2&&$('bill-name').value.trim()){toast('Use Add bill to save this bill before continuing.');return;}
 if(action==='setup-next'&&setupStep===4&&$('goal-target').value.trim()&&!state.goal){toast('Save your goal first, or clear its amount to skip.');return;}
-if(action==='setup-next'&&setupStep===5){state.setupComplete=true;setupActive=false;setupStep=0;save();localStorage.removeItem('can-i-setup-step');location.hash='compare';render();return;}
-setupStep=Math.max(0,Math.min(5,setupStep+(action==='setup-next'?1:-1)));localStorage.setItem('can-i-setup-step',setupStep);render();window.scrollTo({top:0});});
+if(action==='setup-next'&&setupStep===5){state.setupComplete=true;setupActive=false;setupStep=0;save();storeSetupStep(null);location.hash='compare';render();return;}
+setupStep=Math.max(0,Math.min(5,setupStep+(action==='setup-next'?1:-1)));storeSetupStep(setupStep);render();window.scrollTo({top:0});});
+document.addEventListener('click',event=>{
+ if(!event.target.closest('[data-action="start-own"]'))return;
+ const input=$('cash');if(!input||state.setupComplete||setupStep!==0)return;
+ // Keep the existing inputs, including anything already typed. Move only the view.
+ window.history.replaceState(null,'','#setup');
+ $('app-introduction').hidden=true;$('start-actions').hidden=true;
+ input.focus({preventScroll:true});
+ input.closest('.field').scrollIntoView({block:'center',behavior:'auto'});
+});
 render();
 
 // One comparison screen: paste at the END of app.mjs.
@@ -441,7 +485,7 @@ runScenario = function () {
         <div class="buttons choice-actions"><button type="button" class="secondary" data-action="unified-review" data-index="${i}">Review this plan</button>
         ${suggest&&p.items.length?`<button type="button" class="text-btn" data-action="adjust-split" data-index="${i}">Adjust this option →</button>`:''}</div></section>`).join('') + '</div>';
     const resultHeading = suggest
-      ? `<div class="section-label"><h2>${plans.length} ways to use ${money(plans[0].budget)}</h2><span class="label">PREVIEW ONLY</span></div><p>Based on your saved bills, debts, and goal. Nothing has been paid or moved.</p>`
+      ? `<div class="section-label"><h2>${plans.length} ways to use ${money(plans[0].budget)}</h2>${SAMPLE_MODE?`<a class="text-btn sample-return" href="${esc(modeURL(false))}">Use my numbers →</a>`:'<span class="label">PREVIEW ONLY</span>'}</div><p>${SAMPLE_MODE?'Sample numbers':'Based on your saved bills, debts, and goal. Nothing has been paid or moved.'}</p>`
       : `<div class="section-label"><h2>Your plan${plans.length > 1 ? ' and other options' : ''}</h2><span class="label">PREVIEW ONLY</span></div><p>Nothing has been paid or moved.</p>`;
     $('whatif-results').innerHTML = resultHeading + fundingNotice(funding) + warningHTML(baseline.result) + cards + comparisonTable;
     $('whatif-results').insertAdjacentHTML('beforeend','<div id="plan-review" class="below"></div>');
@@ -558,7 +602,7 @@ billsView=function(){return billsWithNavigation()+`<div class="buttons below"><a
 const essentialsWithBack=essentialsView;
 essentialsView=function(){return essentialsWithBack()+(setupActive?'':'<p><a class="text-btn" href="#money">← Back to my money</a></p>');};
 const bannerWithSample=banner;
-banner=function(){bannerWithSample();if(state.setupComplete&&!state.demo)$('notice').insertAdjacentHTML('beforeend','<p><button type="button" class="text-btn" data-action="demo">Try sample numbers →</button><small class="muted"> Uses made-up numbers instead of your saved entries. You’ll be asked before replacing them.</small></p>');};
+banner=function(){bannerWithSample();if(state.setupComplete&&!SAMPLE_MODE&&!state.demo)$('notice').insertAdjacentHTML('beforeend','<a class="text-btn" data-example-link href="'+esc(modeURL(true))+'">Try sample numbers →</a>');};
 render();
 
 // Activity dates and dashboard. Uses the existing money calculations and storage.
@@ -806,3 +850,12 @@ document.addEventListener('click',event=>{
 render();
 
 function expectedIncomeCard(){if(!state.income)return '';return `<div class="stat-row"><span>Expected income<small class="dashboard-sub">${state.payday?date(state.payday):'Date not set'} · not in your current balance</small></span><b>${money(state.income)}</b></div>${state.payday?'<button type="button" class="text-btn" data-action="receive-expected-income">Record income received →</button>':'<a class="text-btn" href="#history">Record income →</a>'}`;}
+
+
+// The optional example opens with actual results from the same comparison engine.
+if(SAMPLE_MODE&&$('whatif-form')&&comparisonAction==='suggest'&&state.cash>0){
+ const budget=$('split-budget');budget.value=value(Math.min(10000,state.cash));
+ runScenario();
+ const heading=$('whatif-results')?.querySelector('h2');
+ if(heading){heading.tabIndex=-1;heading.focus({preventScroll:true});heading.scrollIntoView({block:'start',behavior:'auto'});}
+}

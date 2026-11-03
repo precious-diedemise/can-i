@@ -90,3 +90,12 @@ input:disabled,select:disabled{background:#f0f2ed;color:#66736c}
 @media(max-width:720px){.choice-cards{grid-template-columns:1fr}.choice-card>h3{min-height:0;margin-bottom:18px}.choice-allocation-block{min-height:0}.choice-tradeoff{min-height:0}.choice-card{padding:20px}.choice-actions .secondary{width:auto}.choice-actions{gap:14px}}
 
 
+
+
+/* First visit: two visible starting actions, using the existing button styles. */
+.start-actions{display:flex;align-items:center;flex-wrap:wrap;gap:10px;margin:18px 0 20px}
+.start-actions>a,.start-actions>button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;text-decoration:none}
+.start-actions :focus-visible,.sample-return:focus-visible{outline:3px solid #5a7c52;outline-offset:3px}
+#guided-money .field{scroll-margin-block:16px}
+#whatif-results h2[tabindex]{scroll-margin-top:20px}
+@media(max-width:720px){#whatif-results h2[tabindex]{scroll-margin-top:125px}.start-actions{gap:8px;margin:14px 0 18px}.start-actions>a,.start-actions>button{padding:10px 12px}}

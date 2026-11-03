@@ -11,7 +11,7 @@ const app=fs.readFileSync(new URL('./app.mjs',import.meta.url),'utf8').replace(/
 const chat=fs.readFileSync(new URL('./conversation.mjs',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replace('export function createConversation','function createConversation');
 const html=fs.readFileSync(new URL('./index.html',import.meta.url),'utf8');
 const tick=()=>new Promise(resolve=>setTimeout(resolve,5));
-async function setup(saved,entries=[],previousUndo=null){const dom=new JSDOM(html,{url:'https://example.test/',runScripts:'outside-only'}),w=dom.window;Object.assign(w,engine,planner,goals,{structuredClone,AbortController,fetch:async()=>({ok:true,json:async()=>({configured:true})})});w.scrollTo=()=>{};w.HTMLElement.prototype.scrollIntoView=()=>{};w.confirm=()=>true;w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
+async function setup(saved,entries=[],previousUndo=null,url='https://example.test/'){const dom=new JSDOM(html,{url,runScripts:'outside-only'}),w=dom.window;Object.assign(w,engine,planner,goals,{structuredClone,AbortController,fetch:async()=>({ok:true,json:async()=>({configured:true})})});w.scrollTo=()=>{};w.HTMLElement.prototype.scrollIntoView=()=>{};w.confirm=()=>true;w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
  if(saved)w.localStorage.setItem('can-i-v2',JSON.stringify({state:saved,history:entries,undo:previousUndo}));const ctx=dom.getInternalVMContext();w.createConversation=vm.runInContext('(()=>{'+chat+';return createConversation;})()',ctx);vm.runInContext(app,ctx);await tick();return {w,close:()=>dom.window.close(),run:s=>vm.runInContext(s,ctx),q:id=>w.document.getElementById(id),route:async h=>{w.location.hash=h;await tick();},fill:(id,value)=>{const e=w.document.getElementById(id);assert.ok(e,id+' exists');e.value=value;e.dispatchEvent(new w.Event('input',{bubbles:true}));},submit:async id=>{w.document.getElementById(id).dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await tick();}};}
 const saved=()=>({...engine.demo(),demo:false,setupComplete:true,bills:[],preferences:'Protect my cushion',knownFields:['cash','savings','essentials']});
 
@@ -52,11 +52,10 @@ test('essentials continues to bills, sample numbers remain accessible, total-deb
  const a=await setup(saved());t.after(a.close);await a.route('#essentials');a.fill('essentials','90');await a.submit('guided-essentials');
  assert.equal(a.w.location.hash,'#bills');assert.equal(a.run('state.essentials'),9000);
  assert.ok(a.w.document.querySelector('a[href="#debts"]'));
- assert.ok(a.w.document.querySelector('[data-action="demo"]'));
+ assert.match(a.w.document.querySelector('#notice [data-example-link]').href,/example=1#whatif$/);
  await a.route('#goal');assert.equal(a.q('goal-debt'),null);a.fill('goal-type','debt');a.fill('goal-target','100');a.fill('goal-deadline','2099-01-01');await a.submit('goal-form');
  assert.equal(a.run('state.goal.debtId'),'');assert.equal(a.run('state.goal.baseline'),a.run('state.debts.reduce((n,d)=>n+d.balance,0)'));
- const before=a.run('state.cash');a.w.confirm=()=>false;a.w.document.querySelector('[data-action="demo"]').click();assert.equal(a.run('state.cash'),before);
- a.w.confirm=()=>true;a.w.document.querySelector('[data-action="demo"]').click();assert.equal(a.run('state.demo'),true);assert.equal(a.run('state.bills.length'),0);assert.equal(a.run('state.knownFields.length'),3);
+ assert.equal(a.run('state.cash'),saved().cash);assert.equal(a.run('state.demo'),false);
 });
 
 test('completed comparisons keep their actual date and record once; saved plans never enter cash flow',async t=>{
@@ -244,5 +243,46 @@ test('undoing an expected-income receipt makes dependent plans wait again',async
  a.w.document.querySelector('[data-action="undo"]').click();assert.equal(a.run('state.cash'),s.cash);
  a.w.document.querySelector('[data-action="review-saved-plan"]').click();assert.equal(a.w.document.querySelector('#plan-review [data-action="record-dialog"]'),null);
 });
+
+test('first visit offers two visible actions; entering money focuses the existing field without losing input',async t=>{
+ const a=await setup();t.after(a.close);
+ assert.equal(a.q('app-introduction').hidden,false);assert.equal(a.q('start-actions').hidden,false);
+ assert.equal(a.q('notice').textContent,'');assert.equal(a.q('cash').value,'');
+ assert.doesNotMatch(a.q('app-introduction').textContent,/Start by entering/);
+ const start=a.q('start-actions').querySelector('[data-action="start-own"]');
+ const sample=a.q('start-actions').querySelector('[data-example-link]');
+ assert.equal(start.textContent,'Enter my numbers');assert.equal(sample.textContent,'Try sample numbers');
+ assert.equal(new URL(sample.href).searchParams.get('example'),'1');
+ a.fill('cash','25');start.click();
+ assert.equal(a.w.document.activeElement,a.q('cash'));assert.equal(a.q('cash').value,'25');
+ assert.equal(a.q('app-introduction').hidden,true);assert.equal(a.w.location.hash,'#setup');
+ assert.equal(a.run('state.cash'),0);assert.equal(a.run('history.length'),0);
+});
+test('sample opens a calculated comparison immediately and sample writes cannot change personal money, activity or setup',async t=>{
+ const s={...saved(),cash:2700},h=[{id:'mine',kind:'facts',total:0,label:'Personal entry',at:new Date().toISOString()}];
+ const a=await setup(s,h,null,'https://example.test/?example=1#whatif');t.after(a.close);
+ const original=a.run("localStorage.getItem('can-i-v2')");
+ assert.equal(a.q('app-introduction').hidden,true);assert.equal(a.q('start-actions').hidden,true);
+ assert.equal(a.q('split-budget').value,'100.00');assert.match(a.q('whatif-results').textContent,/3 ways to use \$100.00/);
+ assert.equal(a.run('history.length'),0);assert.equal(a.run('state.cash'),10000);
+ assert.equal(a.run('options[0].result.cash'),4000);
+ assert.equal(a.run('options.every(p=>p.kept===p.result.cash)'),true);
+ const back=new URL(a.q('notice').querySelector('a').href);assert.equal(back.searchParams.has('example'),false);assert.equal(back.hash,'#money');
+ a.run("localStorage.setItem('can-i-setup-step','3')");
+ a.w.document.querySelector('[data-action="unified-review"]').click();a.w.document.querySelector('[data-action="save-plan"]').click();
+ assert.equal(a.run('history.length'),1);assert.equal(a.run("JSON.parse(localStorage.getItem('can-i-v2-example')).history.length"),1);
+ assert.equal(a.run("localStorage.getItem('can-i-v2')"),original);assert.equal(a.run("localStorage.getItem('can-i-setup-step')"),'3');
+ const b=await setup(s,h,null,back.href);t.after(b.close);assert.equal(b.q('cash').value,'27.00');assert.equal(b.run('history[0].id'),'mine');
+});
+test('trying an example from the first step can preserve an unfinished entry without recording it',async t=>{
+ const a=await setup();t.after(a.close);a.fill('cash','24.25');a.fill('savings','');
+ const link=a.q('start-actions').querySelector('a');link.addEventListener('click',e=>e.preventDefault());link.click();
+ assert.equal(a.run("JSON.parse(sessionStorage.getItem(MONEY_DRAFT_KEY)).cash"),'24.25');
+ assert.equal(a.run('state.cash'),0);assert.equal(a.run('history.length'),0);
+ await a.route('#money');assert.equal(a.q('cash').value,'24.25');assert.equal(a.q('savings').value,'');
+ a.fill('savings','10');a.w.document.querySelector('[data-action="setup-next"]').click();
+ assert.equal(a.run('state.cash'),2425);assert.equal(a.run('sessionStorage.getItem(MONEY_DRAFT_KEY)'),null);
+});
+
 
 

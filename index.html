@@ -10,6 +10,11 @@
 See what you have, what you owe, and what’s coming up so you can plan your next move.
   </p>
 
+  <div id="start-actions" class="start-actions" role="group" aria-label="Get started" hidden>
+    <button type="button" class="primary" data-action="start-own">Enter my numbers</button>
+    <a class="secondary" data-example-link href="?example=1#whatif">Try sample numbers</a>
+  </div>
+
   <ul>
     <li>
       <strong>Organize: </strong>
@@ -28,13 +33,10 @@ See what you have, what you owe, and what’s coming up so you can plan your nex
     </li>
   </ul>
 
-  <p>
-    Start by entering your numbers, or choose
-    <strong>Try sample numbers</strong> to explore.
-  </p>
 </section><div id="notice"></div><div id="content"></div><footer>Comparisons use the information you enter. Expected income is not cash until received.<br>Suggestions use your entries and fixed comparison rules. Review the trade-offs before acting. No bank connection or money transfers.</footer></main></div>
 <div id="toast" role="status" aria-live="polite"></div>
-<dialog id="confirm"><form method="dialog"><h2>Have you completed these actions?</h2><p id="confirm-text"></p><div class="field"><label for="activity-date">When did this happen?</label><input id="activity-date" type="date" required><small>For a plan with several actions, use the day you completed them. Record separate dates as separate activities.</small></div><div id="activity-date-error" class="error" role="alert"></div><p class="muted">This records what happened. Can I does not send money or pay anyone.</p><div class="buttons"><button value="cancel" class="secondary" formnovalidate>Keep as a preview</button><button value="record" class="primary">Yes, record actions</button></div></form></dialog>
+<dialog id="confirm"><form method="dialog"><h2>Have you completed these actions?</h2><p id="confirm-text"></p><div class="field"><label for="activity-date">When did this happen?</label><input id="activity-date" type="date" required><small>For a plan with several actions, use the day you completed them. Record separate dates as separate activities.</small></div><div id="activity-date-error" class="error" role="alert"></div><p class="muted">This records what happened. Can I does not send money or pay anyone.</p><div class="buttons"><button value="cancel" class="text-btn" formnovalidate>Go back</button><button id="confirm-save-plan" value="save" class="secondary" formnovalidate>Save for later</button><button value="record" class="primary">Yes, record actions</button></div></form></dialog>
 <script type="module" src="app.mjs"></script></body></html>
+
 
 
