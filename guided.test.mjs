@@ -11,8 +11,8 @@ const app=fs.readFileSync(new URL('./app.mjs',import.meta.url),'utf8').replace(/
 const chat=fs.readFileSync(new URL('./conversation.mjs',import.meta.url),'utf8').replace(/^import .*;\n/gm,'').replace('export function createConversation','function createConversation');
 const html=fs.readFileSync(new URL('./index.html',import.meta.url),'utf8');
 const tick=()=>new Promise(resolve=>setTimeout(resolve,5));
-async function setup(saved,entries=[],previousUndo=null,url='https://example.test/'){const dom=new JSDOM(html,{url,runScripts:'outside-only'}),w=dom.window;Object.assign(w,engine,planner,goals,{structuredClone,AbortController,fetch:async()=>({ok:true,json:async()=>({configured:true})})});w.scrollTo=()=>{};w.HTMLElement.prototype.scrollIntoView=()=>{};w.confirm=()=>true;w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
- if(saved)w.localStorage.setItem('can-i-v2',JSON.stringify({state:saved,history:entries,undo:previousUndo}));const ctx=dom.getInternalVMContext();w.createConversation=vm.runInContext('(()=>{'+chat+';return createConversation;})()',ctx);vm.runInContext(app,ctx);await tick();return {w,close:()=>dom.window.close(),run:s=>vm.runInContext(s,ctx),q:id=>w.document.getElementById(id),route:async h=>{w.location.hash=h;await tick();},fill:(id,value)=>{const e=w.document.getElementById(id);assert.ok(e,id+' exists');e.value=value;e.dispatchEvent(new w.Event('input',{bubbles:true}));},submit:async id=>{w.document.getElementById(id).dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await tick();}};}
+async function setup(saved,entries=[],previousUndo=null,url='https://example.test/',storage={}){const dom=new JSDOM(html,{url,runScripts:'outside-only'}),w=dom.window;Object.assign(w,engine,planner,goals,{structuredClone,AbortController,fetch:async()=>({ok:true,json:async()=>({configured:true})})});w.scrollTo=()=>{};w.HTMLElement.prototype.scrollIntoView=()=>{};w.confirm=()=>true;w.HTMLDialogElement.prototype.showModal=function(){this.open=true;};
+ if(saved)w.localStorage.setItem('can-i-v2',JSON.stringify({state:saved,history:entries,undo:previousUndo}));for(const [k,v] of Object.entries(storage.local||{}))w.localStorage.setItem(k,v);for(const [k,v] of Object.entries(storage.session||{}))w.sessionStorage.setItem(k,v);const ctx=dom.getInternalVMContext();w.createConversation=vm.runInContext('(()=>{'+chat+';return createConversation;})()',ctx);vm.runInContext(app,ctx);await tick();return {w,close:()=>dom.window.close(),run:s=>vm.runInContext(s,ctx),q:id=>w.document.getElementById(id),route:async h=>{w.location.hash=h;await tick();},fill:(id,value)=>{const e=w.document.getElementById(id);assert.ok(e,id+' exists');e.value=value;e.dispatchEvent(new w.Event('input',{bubbles:true}));},submit:async id=>{w.document.getElementById(id).dispatchEvent(new w.Event('submit',{bubbles:true,cancelable:true}));await tick();}};}
 const saved=()=>({...engine.demo(),demo:false,setupComplete:true,bills:[],preferences:'Protect my cushion',knownFields:['cash','savings','essentials']});
 
 test('guided setup, saved steps, debts and bills, recommendations and no AI',async t=>{const a=await setup();t.after(a.close);assert.ok(a.q('guided-money'));assert.equal(a.q('cash').value,'');assert.equal(a.q('debt-fields'),null);a.fill('cash','200');a.fill('savings','50');a.w.document.querySelector('[data-action="setup-next"]').click();assert.ok(a.q('guided-essentials'));a.fill('essentials','80');a.w.document.querySelector('[data-action="setup-back"]').click();assert.equal(a.q('cash').value,'200.00');a.w.document.querySelector('[data-action="setup-next"]').click();assert.equal(a.q('essentials').value,'80.00');a.w.document.querySelector('[data-action="setup-next"]').click();a.fill('bill-name','Phone');a.fill('bill-amount','10');a.fill('bill-date',engine.dateAfter(3));await a.submit('bill-form');a.w.document.querySelector('[data-action="setup-next"]').click();assert.ok(a.q('guided-debts'));a.w.document.querySelector('[data-action="add-debt"]').click();a.fill('dn-0','Card');a.fill('db-0','100');a.fill('dm-0','40');a.fill('dd-0',engine.dateAfter(1));a.w.document.querySelector('[data-action="setup-next"]').click();a.w.document.querySelector('[data-action="setup-next"]').click();assert.match(a.q('content').textContent,/Ready to explore/);a.w.document.querySelector('[data-action="setup-next"]').click();await tick();assert.ok(a.q('whatif-form'));assert.equal(a.run('state.cash'),20000);a.fill('split-budget','50');await a.submit('whatif-form');assert.match(a.q('whatif-results').textContent,/Here’s what would change/);assert.equal(a.run('state.cash'),20000);await a.route('#money');assert.equal(a.q('debt-fields'),null);await a.route('#debts');assert.ok(a.q('dn-0'));await a.route('#play');assert.match(a.q('content').textContent,/COMING SOON/);await a.route('#chat');assert.equal(a.q('chat-form'),null);assert.ok(a.q('whatif-form'));});
@@ -48,11 +48,11 @@ test('one amount is the default; manual entries are optional and survive switchi
  assert.equal(a.run('state.cash'),saved().cash);
 });
 
-test('essentials continues to bills, sample numbers remain accessible, total-debt goal has no picker',async t=>{
+test('essentials continues to bills, the sample control stays on Step 1, and total-debt goal has no picker',async t=>{
  const a=await setup(saved());t.after(a.close);await a.route('#essentials');a.fill('essentials','90');await a.submit('guided-essentials');
  assert.equal(a.w.location.hash,'#bills');assert.equal(a.run('state.essentials'),9000);
  assert.ok(a.w.document.querySelector('a[href="#debts"]'));
- assert.match(a.w.document.querySelector('#notice [data-example-link]').href,/example=1#whatif$/);
+ assert.equal(a.q('use-sample-numbers'),null);assert.equal(a.w.document.querySelector('#notice [data-example-link]'),null);
  await a.route('#goal');assert.equal(a.q('goal-debt'),null);a.fill('goal-type','debt');a.fill('goal-target','100');a.fill('goal-deadline','2099-01-01');await a.submit('goal-form');
  assert.equal(a.run('state.goal.debtId'),'');assert.equal(a.run('state.goal.baseline'),a.run('state.debts.reduce((n,d)=>n+d.balance,0)'));
  assert.equal(a.run('state.cash'),saved().cash);assert.equal(a.run('state.demo'),false);
@@ -244,45 +244,65 @@ test('undoing an expected-income receipt makes dependent plans wait again',async
  a.w.document.querySelector('[data-action="review-saved-plan"]').click();assert.equal(a.w.document.querySelector('#plan-review [data-action="record-dialog"]'),null);
 });
 
-test('first visit offers two visible actions; entering money focuses the existing field without losing input',async t=>{
+test('the welcome card has one starting action; only Enter my numbers reveals the form and its sample control',async t=>{
  const a=await setup();t.after(a.close);
- assert.equal(a.q('app-introduction').hidden,false);assert.equal(a.q('start-actions').hidden,false);
- assert.equal(a.q('notice').textContent,'');assert.equal(a.q('cash').value,'');
- assert.doesNotMatch(a.q('app-introduction').textContent,/Start by entering/);
- const start=a.q('start-actions').querySelector('[data-action="start-own"]');
- const sample=a.q('start-actions').querySelector('[data-example-link]');
- assert.equal(start.textContent,'Enter my numbers');assert.equal(sample.textContent,'Try sample numbers');
- assert.equal(new URL(sample.href).searchParams.get('example'),'1');
- a.fill('cash','25');start.click();
- assert.equal(a.w.document.activeElement,a.q('cash'));assert.equal(a.q('cash').value,'25');
- assert.equal(a.q('app-introduction').hidden,true);assert.equal(a.w.location.hash,'#setup');
- assert.equal(a.run('state.cash'),0);assert.equal(a.run('history.length'),0);
+ assert.equal(a.q('app-introduction').hidden,false);assert.equal(a.q('content').hidden,true);
+ const actions=a.q('start-actions').querySelectorAll('button,a');assert.equal(actions.length,1);assert.equal(actions[0].textContent,'Enter my numbers');
+ assert.equal(a.q('use-sample-numbers').closest('[hidden]'),a.q('content'));
+ actions[0].click();assert.equal(a.q('content').hidden,false);assert.equal(a.q('app-introduction').hidden,true);assert.equal(a.q('cash'),a.w.document.activeElement);
+ assert.equal(a.q('cash').value,'');assert.equal(a.q('savings').value,'');assert.equal(a.q('use-sample-numbers').closest('[hidden]'),null);
+ assert.equal(a.w.location.hash,'#setup');assert.equal(a.run('history.length'),0);
 });
-test('sample opens a calculated comparison immediately and sample writes cannot change personal money, activity or setup',async t=>{
- const s={...saved(),cash:2700},h=[{id:'mine',kind:'facts',total:0,label:'Personal entry',at:new Date().toISOString()}];
- const a=await setup(s,h,null,'https://example.test/?example=1#whatif');t.after(a.close);
- const original=a.run("localStorage.getItem('can-i-v2')");
- assert.equal(a.q('app-introduction').hidden,true);assert.equal(a.q('start-actions').hidden,true);
- assert.equal(a.q('split-budget').value,'100.00');assert.match(a.q('whatif-results').textContent,/3 ways to use \$100.00/);
- assert.equal(a.run('history.length'),0);assert.equal(a.run('state.cash'),10000);
- assert.equal(a.run('options[0].result.cash'),4000);
- assert.equal(a.run('options.every(p=>p.kept===p.result.cash)'),true);
- const back=new URL(a.q('notice').querySelector('a').href);assert.equal(back.searchParams.has('example'),false);assert.equal(back.hash,'#money');
- a.run("localStorage.setItem('can-i-setup-step','3')");
+
+test('sample fills the same Step 1 fields in place and follows all six steps before Compare',async t=>{
+ const a=await setup();t.after(a.close);a.q('start-actions').querySelector('button').click();
+ const beforeCash=a.q('cash'),beforeForm=a.q('guided-money');a.q('use-sample-numbers').click();
+ assert.equal(a.q('guided-money'),beforeForm);assert.equal(a.q('cash'),beforeCash);
+ assert.equal(a.q('cash').value,'100.00');assert.equal(a.q('savings').value,'50.00');assert.equal(a.w.location.hash,'#setup');
+ assert.equal(a.run('setupStep'),0);assert.equal(a.q('whatif-form'),null);assert.equal(a.q('step-one-sample').querySelector('[role="status"]').textContent,'Sample numbers');
+ a.fill('cash','85');for(const [index,form] of ['guided-essentials','bill-form','guided-debts','goal-form'].entries()){
+  a.w.document.querySelector('[data-action="setup-next"]').click();assert.equal(a.run('setupStep'),index+1);assert.ok(a.q(form));assert.equal(a.q('whatif-form'),null);
+ }
+ assert.equal(a.run('state.cash'),8500);a.w.document.querySelector('[data-action="setup-next"]').click();assert.match(a.q('content').textContent,/Ready to explore/);
+ a.w.document.querySelector('[data-action="setup-next"]').click();await tick();assert.ok(a.q('whatif-form'));
+ assert.equal(a.q('split-budget').value,'');assert.equal(a.q('whatif-results').textContent,'');assert.equal(a.run("localStorage.getItem('can-i-v2')"),null);
+ a.fill('split-budget','25');await a.submit('whatif-form');assert.equal(a.q('whatif-error').textContent,'');
  a.w.document.querySelector('[data-action="unified-review"]').click();a.w.document.querySelector('[data-action="save-plan"]').click();
- assert.equal(a.run('history.length'),1);assert.equal(a.run("JSON.parse(localStorage.getItem('can-i-v2-example')).history.length"),1);
- assert.equal(a.run("localStorage.getItem('can-i-v2')"),original);assert.equal(a.run("localStorage.getItem('can-i-setup-step')"),'3');
- const b=await setup(s,h,null,back.href);t.after(b.close);assert.equal(b.q('cash').value,'27.00');assert.equal(b.run('history[0].id'),'mine');
-});
-test('trying an example from the first step can preserve an unfinished entry without recording it',async t=>{
- const a=await setup();t.after(a.close);a.fill('cash','24.25');a.fill('savings','');
- const link=a.q('start-actions').querySelector('a');link.addEventListener('click',e=>e.preventDefault());link.click();
- assert.equal(a.run("JSON.parse(sessionStorage.getItem(MONEY_DRAFT_KEY)).cash"),'24.25');
- assert.equal(a.run('state.cash'),0);assert.equal(a.run('history.length'),0);
- await a.route('#money');assert.equal(a.q('cash').value,'24.25');assert.equal(a.q('savings').value,'');
- a.fill('savings','10');a.w.document.querySelector('[data-action="setup-next"]').click();
- assert.equal(a.run('state.cash'),2425);assert.equal(a.run('sessionStorage.getItem(MONEY_DRAFT_KEY)'),null);
+ assert.equal(a.run("JSON.parse(localStorage.getItem('can-i-v2-example')).history.length"),1);assert.equal(a.run("localStorage.getItem('can-i-v2')"),null);
 });
 
+test('switching to sample and returning preserves unfinished personal fields, personal activity, and the setup position',async t=>{
+ const s={...saved(),setupComplete:false,cash:2700,savings:900};const h=[{id:'mine',kind:'facts',total:0,label:'Personal entry',at:new Date().toISOString()}];
+ const a=await setup(s,h,null,'https://example.test/?campus=ucm#money',{local:{'can-i-setup-step':'0'}});t.after(a.close);
+ const original=a.run("localStorage.getItem('can-i-v2')");a.fill('cash','24.25');a.fill('savings','');a.q('use-sample-numbers').click();
+ assert.equal(a.run('SAMPLE_MODE'),true);assert.equal(a.run('history.length'),0);assert.equal(a.run('state.cash'),10000);
+ assert.equal(a.run("localStorage.getItem('can-i-v2')"),original);
+ const back=new URL(a.q('step-one-sample').querySelector('a').href);assert.equal(back.searchParams.get('campus'),'ucm');assert.equal(back.searchParams.has('example'),false);assert.equal(back.hash,'#money');
+ a.w.document.querySelector('[data-action="setup-next"]').click();assert.equal(a.run("localStorage.getItem('can-i-setup-step')"),'0');
+ const sampleLocal={'can-i-v2-example':a.run("localStorage.getItem('can-i-v2-example')"),'can-i-setup-step-example':a.run("localStorage.getItem('can-i-setup-step-example')")};
+ const session={'can-i-v2-first-step-draft':a.run('sessionStorage.getItem(MONEY_DRAFT_KEY)')};
+ const b=await setup(s,h,null,a.w.location.href,{local:sampleLocal,session});t.after(b.close);assert.ok(b.q('guided-essentials'));assert.equal(b.run('setupStep'),1);assert.equal(b.run('SAMPLE_MODE'),true);
+ const c=await setup(s,h,null,back.href,{local:sampleLocal,session});t.after(c.close);assert.equal(c.q('cash').value,'24.25');assert.equal(c.q('savings').value,'');
+ assert.equal(c.run('history[0].id'),'mine');assert.equal(c.run('state.cash'),2700);assert.equal(c.run('SAMPLE_MODE'),false);
+});
 
+test('fresh sample links from the previous version cannot skip setup or run a comparison',async t=>{
+ const a=await setup(undefined,[],null,'https://example.test/?example=1#whatif');t.after(a.close);
+ assert.equal(a.q('app-introduction').hidden,true);assert.equal(a.q('content').hidden,false);assert.ok(a.q('guided-money'));assert.equal(a.q('cash').value,'100.00');
+ assert.equal(a.q('whatif-form'),null);assert.equal(a.run('options.length'),0);
+});
 
+test('reusing an existing fictional profile preserves its activity while reopening the first step',async t=>{
+ const sample={...saved(),cash:7500,savings:4300};const item={id:'old-example',kind:'plan',label:'Earlier sample plan',items:[],at:new Date().toISOString()};
+ const a=await setup(undefined,[],null,'https://example.test/#money',{local:{'can-i-v2-example':JSON.stringify({state:sample,history:[item],undo:null})}});t.after(a.close);
+ a.q('use-sample-numbers').click();assert.equal(a.q('cash').value,'75.00');assert.equal(a.q('savings').value,'43.00');assert.equal(a.run('state.setupComplete'),false);
+ assert.equal(a.run('history[0].id'),'old-example');assert.equal(a.q('whatif-form'),null);assert.equal(a.run("localStorage.getItem('can-i-v2')"),null);
+});
+test('a saved V5 example at its old Compare URL migrates to Step 1 without losing its records',async t=>{
+ const prior={...saved(),cash:7200,savings:5100};const h=[{id:'v5-plan',kind:'plan',label:'Existing example plan',items:[],at:new Date().toISOString()}];
+ const a=await setup(undefined,[],null,'https://example.test/?example=1#whatif',{local:{'can-i-v2-example':JSON.stringify({state:prior,history:h,undo:null}),'can-i-setup-step-example':'4'}});t.after(a.close);
+ assert.equal(a.w.location.hash,'#setup');assert.equal(a.run('setupStep'),0);assert.equal(a.q('cash').value,'72.00');assert.equal(a.q('whatif-form'),null);assert.equal(a.run('history[0].id'),'v5-plan');
+ a.w.document.querySelector('[data-action="setup-next"]').click();assert.equal(a.run('setupStep'),1);
+ const stored=a.run("localStorage.getItem('can-i-v2-example')");assert.equal(JSON.parse(stored).guidedSample,true);
+ const b=await setup(undefined,[],null,a.w.location.href,{local:{'can-i-v2-example':stored,'can-i-setup-step-example':'1'}});t.after(b.close);assert.ok(b.q('guided-essentials'));
+});
